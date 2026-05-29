@@ -54,8 +54,11 @@ def main() -> None:
     listener.start()
     print(f"Verse ready. Hold {config.hotkey.trigger} to talk. Press Ctrl+C to quit.")
 
-    # Start the WebSocket server on the loop
-    loop.create_task(ws_server.serve())
+    # Start the WebSocket server on the loop and retain a reference to prevent garbage collection
+    background_tasks = set()
+    ws_task = loop.create_task(ws_server.serve())
+    background_tasks.add(ws_task)
+    ws_task.add_done_callback(background_tasks.discard)
 
     try:
         loop.run_forever()

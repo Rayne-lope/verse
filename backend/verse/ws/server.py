@@ -102,9 +102,9 @@ class WebSocketServer:
 
     async def serve(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         self._loop = asyncio.get_running_loop()
-        consumer = asyncio.create_task(self._drain_queue())
+        self._consumer = asyncio.create_task(self._drain_queue())
         try:
             async with serve(self._handle_connection, host, port):
                 await asyncio.Future()
         finally:
-            consumer.cancel()
+            self._consumer.cancel()
