@@ -169,7 +169,9 @@ class FakeRecorder:
 
     def stop_recording(self):
         self.is_recording = False
-        return b"audio"
+        import numpy as np
+        from verse.audio.capture import samples_to_wav_bytes
+        return samples_to_wav_bytes(np.zeros(3200), 16000)
 
 
 def test_start_listening_ignored_when_not_idle():

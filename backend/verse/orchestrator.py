@@ -99,6 +99,11 @@ class Orchestrator:
         self._auto_listening = False
         self._cancel_vad_task()
         audio = self.recorder.stop_recording()
+        
+        if _is_audio_too_short(audio):
+            self.state_machine.audio_done()
+            return ""
+            
         self.state_machine.hotkey_released()
         return await self.handle_audio(audio, history=history)
 
@@ -356,8 +361,6 @@ class Orchestrator:
             if self.recorder and self.recorder.is_recording:
                 _ = self.recorder.stop_recording()
 
-            self.state_machine.hotkey_released()
-
             import numpy as np
             if utterance_chunks:
                 samples = np.concatenate(utterance_chunks, axis=0)
@@ -367,9 +370,25 @@ class Orchestrator:
             from verse.audio.capture import samples_to_wav_bytes
             audio = samples_to_wav_bytes(samples, 16000)
 
+            if _is_audio_too_short(audio):
+                self.state_machine.audio_done()
+                return
+
+            self.state_machine.hotkey_released()
             await self.handle_audio(audio)
         except Exception:
             pass
+
+
+def _is_audio_too_short(audio: bytes) -> bool:
+    try:
+        import io
+        import soundfile as sf
+        with sf.SoundFile(io.BytesIO(audio)) as f:
+            duration = len(f) / f.samplerate
+            return duration < 0.1
+    except Exception:
+        return True
 
 
 def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:

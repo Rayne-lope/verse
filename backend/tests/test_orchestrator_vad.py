@@ -291,3 +291,32 @@ def test_manual_push_to_talk_bypasses_vad():
     assert recorder.is_recording is True
     assert orch._auto_listening is False
     assert orch._vad_task is None
+
+
+def test_stop_and_respond_discards_short_audio():
+    vad_manager = FakeVADManager()
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING)
+    
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+    )
+    
+    recorder.is_recording = True
+    
+    from verse.audio.capture import samples_to_wav_bytes
+    empty_wav = samples_to_wav_bytes(np.zeros(10), 16000)
+    recorder.stop_recording = lambda: empty_wav
+    
+    result = asyncio.run(orch.stop_and_respond())
+    
+    assert result == ""
+    assert machine.state is State.IDLE
