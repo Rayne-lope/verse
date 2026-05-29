@@ -177,12 +177,15 @@ def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:
     from verse.tools.registry import build_default_registry
     from verse.tts.macos_say import MacOSSayAdapter
     from verse.tts.edge_tts import EdgeTTSAdapter
+    from verse.tts.google import GoogleTTSAdapter
 
     config = config or AppConfig()
     registry = build_default_registry(config.tools.enabled)
 
     if config.tts.provider == "edge-tts":
         tts = EdgeTTSAdapter(config.tts)
+    elif config.tts.provider == "google":
+        tts = GoogleTTSAdapter(config.tts)
     else:
         tts = MacOSSayAdapter(config.tts)
 
