@@ -41,6 +41,9 @@ class Orchestrator:
         max_tool_iterations: int = 5,
         vad_manager: Any | None = None,
         vad_state_machine: Any | None = None,
+        pre_vad_audio_hook: Callable[[Any], Any] | None = None,
+        post_recording_audio_hook: Callable[[Any], Any] | None = None,
+        clean_for_stt: Callable[[bytes], bytes] | None = None,
     ) -> None:
         self.stt = stt
         self.llm = llm
@@ -56,6 +59,19 @@ class Orchestrator:
         self.on_audio_level = on_audio_level
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
+
+        self.pre_vad_audio_hook = pre_vad_audio_hook
+        self.post_recording_audio_hook = post_recording_audio_hook
+        self.clean_for_stt = clean_for_stt
+
+        if self.recorder is not None:
+            for hook_name in ("pre_vad_audio_hook", "post_recording_audio_hook", "clean_for_stt"):
+                val = getattr(self, hook_name)
+                if val is not None:
+                    try:
+                        setattr(self.recorder, hook_name, val)
+                    except AttributeError:
+                        pass
 
         self.vad_manager = vad_manager
         if self.vad_manager is None:

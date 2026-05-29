@@ -18,10 +18,16 @@ class AudioRecorder:
         sample_rate: int = 16_000,
         channels: int = 1,
         dtype: str = "float32",
+        pre_vad_audio_hook: Callable[[np.ndarray[Any, Any]], np.ndarray[Any, Any]] | None = None,
+        post_recording_audio_hook: Callable[[np.ndarray[Any, Any]], np.ndarray[Any, Any]] | None = None,
+        clean_for_stt: Callable[[bytes], bytes] | None = None,
     ) -> None:
         self.sample_rate = sample_rate
         self.channels = channels
         self.dtype = dtype
+        self.pre_vad_audio_hook = pre_vad_audio_hook
+        self.post_recording_audio_hook = post_recording_audio_hook
+        self.clean_for_stt = clean_for_stt
         self._stream: sd.InputStream | None = None
         self._chunks: list[np.ndarray[Any, Any]] = []
         self._recording = False
@@ -78,7 +84,14 @@ class AudioRecorder:
             samples = np.concatenate(self._chunks, axis=0)
         else:
             samples = np.empty((0, self.channels), dtype=self.dtype)
-        return samples_to_wav_bytes(samples, self.sample_rate)
+
+        if self.post_recording_audio_hook is not None:
+            samples = self.post_recording_audio_hook(samples)
+
+        wav_bytes = samples_to_wav_bytes(samples, self.sample_rate)
+        if self.clean_for_stt is not None:
+            wav_bytes = self.clean_for_stt(wav_bytes)
+        return wav_bytes
 
     def record_for_seconds(self, seconds: float) -> bytes:
         self.start_recording()
@@ -96,6 +109,8 @@ class AudioRecorder:
             # sounddevice status flags are diagnostics; keep recording and retain data.
             pass
         chunk = indata.copy()
+        if self.pre_vad_audio_hook is not None:
+            chunk = self.pre_vad_audio_hook(chunk)
         self._chunks.append(chunk)
 
         if self._loop is not None and self._queue is not None:
