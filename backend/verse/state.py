@@ -44,6 +44,7 @@ class StateMachine:
     _TRANSITIONS: dict[tuple[State, StateTrigger], State] = {
         (State.IDLE, StateTrigger.HOTKEY_PRESS): State.LISTENING,
         (State.LISTENING, StateTrigger.HOTKEY_RELEASE): State.THINKING,
+        (State.LISTENING, StateTrigger.AUDIO_DONE): State.IDLE,
         (State.THINKING, StateTrigger.TTS_READY): State.SPEAKING,
         (State.SPEAKING, StateTrigger.AUDIO_DONE): State.IDLE,
         (State.ERROR, StateTrigger.ERROR_TIMEOUT): State.IDLE,

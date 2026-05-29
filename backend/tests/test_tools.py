@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from verse.tools.builtin import spotify, system, web
 from verse.tools.registry import Tool, ToolRegistry, build_default_registry
 
@@ -137,3 +139,84 @@ def test_spotify_parse_first_track():
 
 def test_spotify_parse_first_track_empty():
     assert spotify._parse_first_track({"tracks": {"items": []}}) is None
+
+
+def test_get_weather_returns_weather_info(monkeypatch):
+    mock_geo_response = MagicMock()
+    mock_geo_response.json = lambda: {
+        "results": [
+            {
+                "latitude": -6.2,
+                "longitude": 106.8,
+                "name": "Jakarta",
+                "country": "Indonesia",
+            }
+        ]
+    }
+    mock_geo_response.raise_for_status = MagicMock()
+
+    mock_weather_response = MagicMock()
+    mock_weather_response.json = lambda: {
+        "current_weather": {"temperature": 29.5, "windspeed": 12.0, "weathercode": 0}
+    }
+    mock_weather_response.raise_for_status = MagicMock()
+
+    def mock_get(url, *args, **kwargs):
+        if "geocoding-api" in url:
+            return mock_geo_response
+        return mock_weather_response
+
+    monkeypatch.setattr("requests.get", mock_get)
+
+    from verse.tools.builtin import weather
+
+    res = weather.get_weather("Jakarta")
+    assert "Jakarta, Indonesia: 29.5°C, Clear sky. Wind speed: 12.0 km/h." in res
+
+
+def test_notes_tool_lifecycle(tmp_path, monkeypatch):
+    from verse.tools.builtin import notes
+
+    monkeypatch.setattr("verse.tools.builtin.notes.NOTES_DIR", tmp_path)
+
+    # 1. list empty
+    assert "No notes found" in notes.list_notes()
+
+    # 2. take note
+    res = notes.take_note("my_note", "Hello notes!")
+    assert "Successfully saved note" in res
+    assert (tmp_path / "my_note.md").exists()
+
+    # 3. read note
+    read_res = notes.read_note("my_note")
+    assert "Hello notes!" in read_res
+
+    # 4. list notes
+    list_res = notes.list_notes()
+    assert "- my_note" in list_res
+
+
+def test_read_calendar_calls_osascript(monkeypatch):
+    mock_run = MagicMock()
+    mock_run.return_value.stdout = "Meeting with Rayne (10:00:00 AM)"
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    from verse.tools.builtin import calendar
+
+    res = calendar.read_calendar("today")
+    assert "Meeting with Rayne" in res
+    assert mock_run.called
+
+
+def test_reminders_calls_osascript(monkeypatch):
+    mock_run = MagicMock()
+    mock_run.return_value.stdout = "Buy milk (list: Reminders)"
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    from verse.tools.builtin import reminders
+
+    read_res = reminders.read_reminders()
+    assert "Buy milk" in read_res
+
+    add_res = reminders.add_reminder("Buy bread", "Whole wheat")
+    assert "Successfully added reminder" in add_res

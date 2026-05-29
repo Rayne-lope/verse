@@ -13,6 +13,7 @@ DEFAULT_CONFIG_PATH = Path("~/.verse/config.toml").expanduser()
 class HotkeyConfig:
     trigger: str = "alt+space"
     mode: str = "push_to_talk"
+    conversation_mode: bool = True
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,13 @@ class ToolsConfig:
             "open_app",
             "web_search",
             "open_url",
+            "get_weather",
+            "take_note",
+            "read_note",
+            "list_notes",
+            "read_calendar",
+            "read_reminders",
+            "add_reminder",
         ]
     )
     spotify_client_id: str = ""
@@ -82,6 +90,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
         hotkey=HotkeyConfig(
             trigger=str(hotkey.get("trigger", HotkeyConfig.trigger)),
             mode=str(hotkey.get("mode", HotkeyConfig.mode)),
+            conversation_mode=bool(hotkey.get("conversation_mode", HotkeyConfig.conversation_mode)),
         ),
         stt=STTConfig(
             provider=str(stt.get("provider", STTConfig.provider)),

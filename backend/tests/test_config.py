@@ -32,6 +32,7 @@ def test_load_config_merges_toml_values(tmp_path):
         """
 [hotkey]
 trigger = "cmd+space"
+conversation_mode = false
 
 [llm]
 provider = "openai"
@@ -48,6 +49,7 @@ enabled = ["open_app"]
 
     assert config.hotkey.trigger == "cmd+space"
     assert config.hotkey.mode == "push_to_talk"
+    assert config.hotkey.conversation_mode is False
     assert config.llm.provider == "openai"
     assert config.llm.model == "gpt-4.1-mini"
     assert config.llm.max_history == 4

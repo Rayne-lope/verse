@@ -55,3 +55,13 @@ def test_unsubscribe_stops_future_events():
 
     assert len(events) == 1
     assert events[0].state is State.LISTENING
+
+
+def test_listening_to_idle_on_audio_done():
+    machine = StateMachine()
+    machine.hotkey_pressed()
+    assert machine.state is State.LISTENING
+
+    machine.audio_done()
+    assert machine.state is State.IDLE
+

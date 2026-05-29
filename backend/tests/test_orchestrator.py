@@ -162,9 +162,10 @@ class FakeRecorder:
         self.is_recording = False
         self.started = 0
 
-    def start_recording(self):
+    def start_recording(self, on_audio_level=None):
         self.is_recording = True
         self.started += 1
+        self.on_audio_level = on_audio_level
 
     def stop_recording(self):
         self.is_recording = False
@@ -218,3 +219,109 @@ def test_transcript_callback_fires():
 
     asyncio.run(orch.handle_audio(b"audio"))
     assert seen == ["hello"]
+
+
+def test_conversation_mode_auto_listens_after_speak():
+    machine = StateMachine(initial_state=State.THINKING)
+    recorder = FakeRecorder()
+    stt = FakeSTT("x")
+    llm = FakeLLM([])
+    tts = FakeTTS()
+    
+    orch = Orchestrator(
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+    )
+    
+    asyncio.run(orch._speak("hello"))
+    
+    assert machine.state is State.LISTENING
+    assert recorder.is_recording is True
+    assert orch._auto_listening is True
+
+
+def test_conversation_mode_silence_detection_triggers_response():
+    import time
+    machine = StateMachine(initial_state=State.LISTENING)
+    recorder = FakeRecorder()
+    stt = FakeSTT("test")
+    llm = FakeLLM([LLMResponse(text="response", tool_calls=[])])
+    tts = FakeTTS()
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    orch = Orchestrator(
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+    )
+    
+    from verse.config import AppConfig, HotkeyConfig
+    orch.config = AppConfig(hotkey=HotkeyConfig(conversation_mode=False))
+    recorder.is_recording = True
+    orch._loop = loop
+    orch._auto_listening = True
+    orch._speech_detected = False
+    orch._last_speech_time = 0.0
+    
+    orch._handle_audio_level(0.1)
+    assert orch._speech_detected is True
+    
+    orch._last_speech_time = time.time() - 2.0
+    orch._handle_audio_level(0.01)
+    
+    async def run_brief():
+        await asyncio.sleep(0.1)
+        
+    loop.run_until_complete(run_brief())
+    
+    assert orch._auto_listening is False
+    assert tts.spoken == ["response"]
+    assert machine.state is State.IDLE
+    loop.close()
+
+
+def test_conversation_mode_timeout_returns_to_idle():
+    import time
+    machine = StateMachine(initial_state=State.LISTENING)
+    recorder = FakeRecorder()
+    stt = FakeSTT("x")
+    llm = FakeLLM([])
+    tts = FakeTTS()
+    
+    loop = asyncio.new_event_loop()
+    
+    orch = Orchestrator(
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+    )
+    
+    recorder.is_recording = True
+    orch._loop = loop
+    orch._auto_listening = True
+    orch._speech_detected = False
+    orch._auto_listen_start_real_time = time.time() - 6.0
+    
+    orch._handle_audio_level(0.01)
+    
+    async def run_brief():
+        await asyncio.sleep(0.1)
+        
+    loop.run_until_complete(run_brief())
+    
+    assert orch._auto_listening is False
+    assert recorder.is_recording is False
+    assert machine.state is State.IDLE
+    loop.close()

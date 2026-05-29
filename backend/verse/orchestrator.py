@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Callable
 
 from verse.config import AppConfig
@@ -54,14 +55,23 @@ class Orchestrator:
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
 
-    def start_listening(self) -> bool:
+        self._auto_listening = False
+        self._speech_detected = False
+        self._last_speech_time = 0.0
+        self._auto_listen_start_real_time = 0.0
+        self._loop = None
+
+
+    def start_listening(self, is_auto: bool = False) -> bool:
         if self.recorder is None:
             raise RuntimeError("Orchestrator has no recorder configured")
         # Ignore presses while busy or during the error-reset window.
         if self.recorder.is_recording or not self.state_machine.is_idle:
             return False
+        if not is_auto:
+            self._auto_listening = False
         self.state_machine.hotkey_pressed()
-        self.recorder.start_recording(on_audio_level=self.on_audio_level)
+        self.recorder.start_recording(on_audio_level=self._handle_audio_level)
         return True
 
     async def stop_and_respond(
@@ -71,6 +81,7 @@ class Orchestrator:
             raise RuntimeError("Orchestrator has no recorder configured")
         if not self.recorder.is_recording:
             return ""
+        self._auto_listening = False
         audio = self.recorder.stop_recording()
         self.state_machine.hotkey_released()
         return await self.handle_audio(audio, history=history)
@@ -167,6 +178,65 @@ class Orchestrator:
                 except TypeError:
                     self._play(audio)
         self.state_machine.audio_done()
+        if self.config.hotkey.conversation_mode:
+            self.start_auto_listening()
+
+    def start_auto_listening(self) -> None:
+        if self.recorder is None:
+            return
+        import time
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+        self._auto_listening = True
+        self._speech_detected = False
+        self._last_speech_time = 0.0
+        self._auto_listen_start_real_time = time.time()
+        
+        success = self.start_listening(is_auto=True)
+        if not success:
+            self._auto_listening = False
+
+    def _handle_audio_level(self, level: float) -> None:
+        if self.on_audio_level:
+            self.on_audio_level(level)
+        if self._auto_listening:
+            self._check_auto_listening_status(level)
+
+    def _check_auto_listening_status(self, level: float) -> None:
+        import time
+        now = time.time()
+
+        if level > 0.03:
+            if not self._speech_detected:
+                self._speech_detected = True
+            self._last_speech_time = now
+
+        if self._speech_detected:
+            if now - self._last_speech_time >= 1.5:
+                self._auto_listening = False
+                if self._loop:
+                    asyncio.run_coroutine_threadsafe(self._auto_respond(), self._loop)
+        else:
+            if now - self._auto_listen_start_real_time >= 5.0:
+                self._auto_listening = False
+                if self._loop:
+                    asyncio.run_coroutine_threadsafe(self._auto_timeout(), self._loop)
+
+    async def _auto_respond(self) -> None:
+        try:
+            await self.stop_and_respond()
+        except Exception:
+            pass
+
+    async def _auto_timeout(self) -> None:
+        try:
+            if self.recorder and self.recorder.is_recording:
+                self.recorder.stop_recording()
+            self.state_machine.audio_done()
+        except Exception:
+            pass
 
 
 def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:
