@@ -32,8 +32,8 @@ class LLMConfig:
 
 @dataclass(frozen=True)
 class TTSConfig:
-    provider: str = "elevenlabs"
-    voice_id: str = ""
+    provider: str = "edge-tts"
+    voice_id: str = "id-ID-GadisNeural"
     speed: float = 1.0
 
 
