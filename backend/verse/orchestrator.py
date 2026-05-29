@@ -68,6 +68,7 @@ class Orchestrator:
             self.vad_state_machine = VADEndpointingStateMachine(self.config.vad)
 
         self.on_vad_state: Callable[[str, float], None] | None = None
+        self.on_pipeline_event: Callable[[str, str, dict[str, Any]], None] | None = None
         self._vad_task: asyncio.Task | None = None
 
         self._auto_listening = False
@@ -127,13 +128,23 @@ class Orchestrator:
 
             return reply
         except Exception as exc:  # surface failure to UI/state machine
+            if self.on_pipeline_event:
+                self.on_pipeline_event(
+                    "error",
+                    "recoverable_error",
+                    {"code": "pipeline_failure", "message": str(exc)}
+                )
             self.state_machine.fail(str(exc))
             raise
 
     async def _transcribe(self, audio: bytes) -> str:
         language = self.config.stt.language
+        if self.on_pipeline_event:
+            self.on_pipeline_event("stt", "started", {})
         transcript = await self.stt.transcribe(audio, language=language)
         transcript = transcript.strip()
+        if self.on_pipeline_event:
+            self.on_pipeline_event("stt", "completed", {"text": transcript})
         if self.on_transcript:
             self.on_transcript(transcript)
         return transcript
@@ -181,10 +192,14 @@ class Orchestrator:
 
     def _run_tool(self, tool_call: dict[str, Any]) -> str:
         name = tool_call.get("function", {}).get("name", "")
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tool", "started", {"name": name})
         try:
             result = self.registry.execute_call(tool_call)
         except Exception as exc:
             result = f"Tool '{name}' failed: {exc}"
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tool", "completed", {"name": name, "result": result})
         if self.on_tool_executed:
             self.on_tool_executed(name, result)
         return result
@@ -221,6 +236,8 @@ class Orchestrator:
 
     async def _speak(self, text: str) -> None:
         self.state_machine.tts_ready()
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tts", "started", {})
         if text:
             clean_text = self._clean_markdown_for_tts(text)
             audio = await self.tts.synthesize(clean_text)
@@ -229,6 +246,8 @@ class Orchestrator:
                     self._play(audio, on_audio_level=self.on_audio_level)
                 except TypeError:
                     self._play(audio)
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tts", "completed", {})
         self.state_machine.audio_done()
         if self.config.hotkey.conversation_mode:
             self.start_auto_listening()
@@ -318,6 +337,7 @@ class Orchestrator:
 
         logger = logging.getLogger(__name__)
         last_send_time = 0.0
+        prev_state = VADState.WAITING_FOR_SPEECH
 
         try:
             while self._auto_listening and self.recorder and self.recorder.is_recording:
@@ -335,11 +355,32 @@ class Orchestrator:
                 prob = self.vad_manager.predict(flat_frame)
                 state, utterance_chunks = self.vad_state_machine.process_frame(flat_frame, prob)
 
+                if state != prev_state:
+                    if state == VADState.SPEECH_ACTIVE and prev_state == VADState.WAITING_FOR_SPEECH:
+                        if self.on_pipeline_event:
+                            self.on_pipeline_event("vad", "speech_started", {})
+                    elif state == VADState.ENDED:
+                        duration_ms = len(utterance_chunks or []) * 32
+                        stop_reason = "max_utterance" if duration_ms >= self.config.vad.max_utterance_ms else "silence"
+                        if self.on_pipeline_event:
+                            self.on_pipeline_event("vad", "speech_ended", {"stop_reason": stop_reason})
+                    prev_state = state
+
                 now = time.time()
                 if now - last_send_time >= 0.12:
                     last_send_time = now
                     if self.on_vad_state:
                         self.on_vad_state(state.value, prob)
+                    if self.on_pipeline_event:
+                        self.on_pipeline_event(
+                            "vad",
+                            "debug",
+                            {
+                                "state": state.value,
+                                "probability": prob,
+                                "elapsed_ms": self.vad_state_machine.elapsed_ms,
+                            },
+                        )
 
                 if state is VADState.ENDED:
                     self._auto_listening = False

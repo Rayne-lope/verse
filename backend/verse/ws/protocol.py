@@ -34,3 +34,15 @@ def tool_executed_message(name: str, result: Any) -> dict[str, Any]:
 
 def error_message(message: str, *, recoverable: bool = True) -> dict[str, Any]:
     return {"type": MSG_ERROR, "message": message, "recoverable": recoverable}
+
+
+MSG_PIPELINE_EVENT = "pipeline_event"
+
+
+def pipeline_event_message(stage: str, event: str, **kwargs: Any) -> dict[str, Any]:
+    return {
+        "type": MSG_PIPELINE_EVENT,
+        "stage": stage,
+        "event": event,
+        **kwargs
+    }

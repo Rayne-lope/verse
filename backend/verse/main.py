@@ -10,6 +10,7 @@ from verse.ws.protocol import (
     audio_level_message,
     tool_executed_message,
     transcript_message,
+    pipeline_event_message,
 )
 from verse.ws.server import WebSocketServer
 
@@ -33,6 +34,9 @@ def main() -> None:
     orchestrator.on_audio_level = lambda level: ws_server.enqueue(audio_level_message(level))
     orchestrator.on_vad_state = lambda state, prob: ws_server.enqueue(
         {"type": "vad_update", "state": state, "probability": prob}
+    )
+    orchestrator.on_pipeline_event = lambda stage, event, metadata: ws_server.enqueue(
+        pipeline_event_message(stage, event, **metadata)
     )
 
     async def _respond() -> None:
