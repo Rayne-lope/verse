@@ -31,6 +31,9 @@ def main() -> None:
         tool_executed_message(name, res)
     )
     orchestrator.on_audio_level = lambda level: ws_server.enqueue(audio_level_message(level))
+    orchestrator.on_vad_state = lambda state, prob: ws_server.enqueue(
+        {"type": "vad_update", "state": state, "probability": prob}
+    )
 
     async def _respond() -> None:
         try:

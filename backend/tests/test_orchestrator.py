@@ -264,8 +264,11 @@ def test_conversation_mode_silence_detection_triggers_response():
         recorder=recorder,
     )
     
-    from verse.config import AppConfig, HotkeyConfig
-    orch.config = AppConfig(hotkey=HotkeyConfig(conversation_mode=False))
+    from verse.config import AppConfig, HotkeyConfig, VADConfig
+    orch.config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=False),
+        vad=VADConfig(enabled=False)
+    )
     recorder.is_recording = True
     orch._loop = loop
     orch._auto_listening = True
@@ -308,6 +311,11 @@ def test_conversation_mode_timeout_returns_to_idle():
         recorder=recorder,
     )
     
+    from verse.config import AppConfig, HotkeyConfig, VADConfig
+    orch.config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=False),
+        vad=VADConfig(enabled=False)
+    )
     recorder.is_recording = True
     orch._loop = loop
     orch._auto_listening = True

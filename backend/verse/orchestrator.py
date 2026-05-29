@@ -39,6 +39,8 @@ class Orchestrator:
         on_audio_level: Callable[[float], None] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_tool_iterations: int = 5,
+        vad_manager: Any | None = None,
+        vad_state_machine: Any | None = None,
     ) -> None:
         self.stt = stt
         self.llm = llm
@@ -54,6 +56,19 @@ class Orchestrator:
         self.on_audio_level = on_audio_level
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
+
+        self.vad_manager = vad_manager
+        if self.vad_manager is None:
+            from verse.audio.vad import SileroVADManager
+            self.vad_manager = SileroVADManager(model_path=self.config.vad.model_path)
+
+        self.vad_state_machine = vad_state_machine
+        if self.vad_state_machine is None:
+            from verse.audio.vad import VADEndpointingStateMachine
+            self.vad_state_machine = VADEndpointingStateMachine(self.config.vad)
+
+        self.on_vad_state: Callable[[str, float], None] | None = None
+        self._vad_task: asyncio.Task | None = None
 
         self._auto_listening = False
         self._speech_detected = False
@@ -82,6 +97,7 @@ class Orchestrator:
         if not self.recorder.is_recording:
             return ""
         self._auto_listening = False
+        self._cancel_vad_task()
         audio = self.recorder.stop_recording()
         self.state_machine.hotkey_released()
         return await self.handle_audio(audio, history=history)
@@ -228,12 +244,22 @@ class Orchestrator:
         success = self.start_listening(is_auto=True)
         if not success:
             self._auto_listening = False
+            return
+
+        if self.config.vad.enabled and self.vad_manager.is_available:
+            self.vad_manager.reset()
+            self.vad_state_machine.reset()
+            if self._loop is not None:
+                self._vad_task = self._loop.create_task(self._run_vad_loop())
 
     def _handle_audio_level(self, level: float) -> None:
         if self.on_audio_level:
             self.on_audio_level(level)
         if self._auto_listening:
-            self._check_auto_listening_status(level)
+            if self.config.vad.enabled and self.vad_manager.is_available:
+                pass
+            else:
+                self._check_auto_listening_status(level)
 
     def _check_auto_listening_status(self, level: float) -> None:
         import time
@@ -266,6 +292,82 @@ class Orchestrator:
             if self.recorder and self.recorder.is_recording:
                 self.recorder.stop_recording()
             self.state_machine.audio_done()
+        except Exception:
+            pass
+
+    def _cancel_vad_task(self) -> None:
+        if self._vad_task is not None:
+            try:
+                current = asyncio.current_task()
+            except RuntimeError:
+                current = None
+            if self._vad_task is not current:
+                self._vad_task.cancel()
+            self._vad_task = None
+
+    async def _run_vad_loop(self) -> None:
+        from verse.audio.vad import VADState
+        import time
+        import numpy as np
+        import logging
+
+        logger = logging.getLogger(__name__)
+        last_send_time = 0.0
+
+        try:
+            while self._auto_listening and self.recorder and self.recorder.is_recording:
+                try:
+                    chunk = await self.recorder.read_chunk()
+                except RuntimeError:
+                    break
+                except asyncio.CancelledError:
+                    break
+
+                flat_frame = chunk.squeeze()
+                if flat_frame.ndim != 1 or len(flat_frame) != 512:
+                    continue
+
+                prob = self.vad_manager.predict(flat_frame)
+                state, utterance_chunks = self.vad_state_machine.process_frame(flat_frame, prob)
+
+                now = time.time()
+                if now - last_send_time >= 0.12:
+                    last_send_time = now
+                    if self.on_vad_state:
+                        self.on_vad_state(state.value, prob)
+
+                if state is VADState.ENDED:
+                    self._auto_listening = False
+                    self._cancel_vad_task()
+                    await self._auto_respond_with_utterance(utterance_chunks)
+                    break
+                elif state is VADState.TIMEOUT:
+                    self._auto_listening = False
+                    self._cancel_vad_task()
+                    await self._auto_timeout()
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.error(f"Error in _run_vad_loop: {exc}")
+
+    async def _auto_respond_with_utterance(self, utterance_chunks: list[np.ndarray] | None) -> None:
+        try:
+            if self.recorder and self.recorder.is_recording:
+                _ = self.recorder.stop_recording()
+
+            self.state_machine.hotkey_released()
+
+            import numpy as np
+            if utterance_chunks:
+                samples = np.concatenate(utterance_chunks, axis=0)
+            else:
+                samples = np.empty((0, 1), dtype=np.float32)
+
+            from verse.audio.capture import samples_to_wav_bytes
+            audio = samples_to_wav_bytes(samples, 16000)
+
+            await self.handle_audio(audio)
         except Exception:
             pass
 
