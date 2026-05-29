@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import deque
+from enum import StrEnum
 import logging
 import os
 from pathlib import Path
@@ -110,3 +112,99 @@ class SileroVADManager:
             sess_options=opts,
             providers=["CPUExecutionProvider"],
         )
+
+
+class VADState(StrEnum):
+    WAITING_FOR_SPEECH = "waiting_for_speech"
+    SPEECH_ACTIVE = "speech_active"
+    ENDED = "ended"
+    TIMEOUT = "timeout"
+
+
+class VADEndpointingStateMachine:
+    def __init__(self, config: Any = None) -> None:
+        from verse.config import VADConfig
+        self.config = config or VADConfig()
+        self._state = VADState.WAITING_FOR_SPEECH
+        
+        # Frame duration is exactly 32ms (512 samples at 16000Hz)
+        self._frame_ms = 32
+        pre_roll_frames = max(1, self.config.pre_roll_ms // self._frame_ms)
+        self._pre_roll: deque[np.ndarray] = deque(maxlen=pre_roll_frames)
+        
+        self._speech_frames: list[np.ndarray] = []
+        self._consecutive_speech_frames = 0
+        self._consecutive_silence_frames = 0
+        self._elapsed_ms = 0.0
+
+    @property
+    def state(self) -> VADState:
+        return self._state
+
+    @property
+    def elapsed_ms(self) -> float:
+        return self._elapsed_ms
+
+    def reset(self) -> None:
+        """Reset state machine counters and buffers."""
+        self._state = VADState.WAITING_FOR_SPEECH
+        self._pre_roll.clear()
+        self._speech_frames.clear()
+        self._consecutive_speech_frames = 0
+        self._consecutive_silence_frames = 0
+        self._elapsed_ms = 0.0
+
+    def process_frame(
+        self, frame: np.ndarray, probability: float
+    ) -> tuple[VADState, list[np.ndarray] | None]:
+        """Process a single frame of 512 samples with its speech probability.
+        
+        Returns:
+            A tuple of (current_state, final_utterance_chunks).
+            The final_utterance_chunks is a list of frames if the state is ENDED, otherwise None.
+        """
+        self._elapsed_ms += self._frame_ms
+
+        if self._state is VADState.WAITING_FOR_SPEECH:
+            self._pre_roll.append(frame)
+            if probability >= self.config.start_threshold:
+                self._consecutive_speech_frames += 1
+            else:
+                self._consecutive_speech_frames = 0
+
+            if self._consecutive_speech_frames * self._frame_ms >= self.config.speech_start_ms:
+                self._state = VADState.SPEECH_ACTIVE
+                # Preload speech frames with all buffered pre-roll chunks
+                self._speech_frames = list(self._pre_roll)
+                self._consecutive_speech_frames = 0
+            elif self._elapsed_ms >= self.config.followup_timeout_s * 1000:
+                self._state = VADState.TIMEOUT
+
+        elif self._state is VADState.SPEECH_ACTIVE:
+            self._speech_frames.append(frame)
+            if probability < self.config.end_threshold:
+                self._consecutive_silence_frames += 1
+            else:
+                self._consecutive_silence_frames = 0
+
+            speech_duration_ms = len(self._speech_frames) * self._frame_ms
+
+            if self._consecutive_silence_frames * self._frame_ms >= self.config.end_silence_ms:
+                if speech_duration_ms >= self.config.min_utterance_ms:
+                    self._state = VADState.ENDED
+                    return self._state, list(self._speech_frames)
+                else:
+                    # Discard too short noise, and go back to waiting
+                    logger.debug("Discarded too short noise (duration: %d ms)", speech_duration_ms)
+                    self._state = VADState.WAITING_FOR_SPEECH
+                    self._speech_frames.clear()
+                    self._pre_roll.clear()
+                    self._consecutive_speech_frames = 0
+                    self._consecutive_silence_frames = 0
+
+            elif speech_duration_ms >= self.config.max_utterance_ms:
+                self._state = VADState.ENDED
+                return self._state, list(self._speech_frames)
+
+        return self._state, None
+
