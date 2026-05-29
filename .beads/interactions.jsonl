@@ -1,2 +1,8 @@
 {"id":"int-1f9d8714","kind":"field_change","created_at":"2026-05-29T11:24:02.319258Z","actor":"Rayne-lope","issue_id":"verse-400","extra":{"field":"assignee","new_value":"gemini","old_value":""}}
 {"id":"int-dac9ec47","kind":"field_change","created_at":"2026-05-29T11:24:36.016976Z","actor":"Rayne-lope","issue_id":"verse-kdg","extra":{"field":"assignee","new_value":"gemini","old_value":""}}
+{"id":"int-823762e6","kind":"field_change","created_at":"2026-05-29T11:35:46.146238Z","actor":"Rayne-lope","issue_id":"verse-kdg","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"done"}}
+{"id":"int-c2921eea","kind":"field_change","created_at":"2026-05-29T11:43:05.972763Z","actor":"Rayne-lope","issue_id":"verse-3p7","extra":{"field":"assignee","new_value":"other","old_value":""}}
+{"id":"int-622e73ad","kind":"field_change","created_at":"2026-05-29T11:43:06.068888Z","actor":"Rayne-lope","issue_id":"verse-cor","extra":{"field":"assignee","new_value":"other","old_value":""}}
+{"id":"int-b6dad011","kind":"field_change","created_at":"2026-05-29T11:43:06.200865Z","actor":"Rayne-lope","issue_id":"verse-jll","extra":{"field":"assignee","new_value":"other","old_value":""}}
+{"id":"int-3e9a88de","kind":"field_change","created_at":"2026-05-29T11:43:06.403922Z","actor":"Rayne-lope","issue_id":"verse-axy","extra":{"field":"assignee","new_value":"other","old_value":""}}
+{"id":"int-fb9ad4f0","kind":"field_change","created_at":"2026-05-29T11:43:07.12408Z","actor":"Rayne-lope","issue_id":"verse-u1s","extra":{"field":"assignee","new_value":"other","old_value":""}}

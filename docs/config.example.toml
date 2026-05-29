@@ -1,0 +1,22 @@
+[hotkey]
+trigger = "alt+space"
+mode = "push_to_talk"
+
+[stt]
+provider = "groq"
+language = "auto"
+
+[llm]
+provider = "deepseek"
+model = "deepseek-chat"
+temperature = 0.7
+max_history = 10
+
+[tts]
+provider = "elevenlabs"
+voice_id = ""
+speed = 1.0
+
+[tools]
+enabled = ["play_music", "pause_music", "open_app", "web_search", "open_url"]
+spotify_client_id = ""

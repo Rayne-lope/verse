@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "frontend",
+  "productName": "Verse",
   "version": "0.1.0",
   "identifier": "com.verse.app",
   "build": {
@@ -10,11 +10,22 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "frontend",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "Verse",
+        "width": 112,
+        "height": 112,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true,
+        "shadow": false,
+        "focus": false
       }
     ],
     "security": {
