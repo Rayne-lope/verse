@@ -50,3 +50,36 @@ async def test_google_tts_adapter_synthesize(monkeypatch):
     # Verify requests.get was called
     mock_get.assert_called_once()
     mock_run.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_google_tts_adapter_synthesize_long_text(monkeypatch):
+    adapter = GoogleTTSAdapter()
+
+    # Mock requests.get
+    mock_response = MagicMock()
+    mock_response.content = b"mp3"
+    mock_response.raise_for_status = MagicMock()
+    
+    mock_get = MagicMock(return_value=mock_response)
+    monkeypatch.setattr("requests.get", mock_get)
+
+    mock_run = MagicMock()
+    monkeypatch.setattr("subprocess.run", mock_run)
+
+    fake_wav_bytes = b"fake wav bytes"
+
+    # Input text of ~220 characters
+    long_text = "Sudah ditambahkan sebagai pengingat di Reminders dengan judul Balik ke Jogja 1 Juni. Sayangnya saya belum bisa menambahkan event langsung ke kalender, tapi pengingat ini akan muncul di aplikasi Reminders kamu."
+
+    with patch.object(Path, "read_bytes", return_value=fake_wav_bytes), \
+         patch.object(Path, "write_bytes") as mock_write:
+        result = await adapter.synthesize(long_text)
+        assert result == fake_wav_bytes
+        # Verify it concatenated mp3 chunks (we had 3 chunks, so 3 * b"mp3" = b"mp3mp3mp3")
+        mock_write.assert_called_once_with(b"mp3mp3mp3")
+
+    # Verify requests.get was called exactly 3 times (due to chunking <= 100 chars)
+    assert mock_get.call_count == 3
+    mock_run.assert_called_once()
+
