@@ -78,10 +78,21 @@ class Orchestrator:
     async def handle_audio(
         self, audio: bytes, *, history: list[dict[str, Any]] | None = None
     ) -> str:
+        import time
+
         try:
+            start_stt = time.time()
             transcript = await self._transcribe(audio)
+            print(f"[Debug] STT took: {time.time() - start_stt:.2f}s")
+
+            start_llm = time.time()
             reply = await self._respond(transcript, history or [])
+            print(f"[Debug] LLM took: {time.time() - start_llm:.2f}s")
+
+            start_tts = time.time()
             await self._speak(reply)
+            print(f"[Debug] TTS took: {time.time() - start_tts:.2f}s")
+
             return reply
         except Exception as exc:  # surface failure to UI/state machine
             self.state_machine.fail(str(exc))
