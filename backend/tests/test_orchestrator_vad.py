@@ -320,3 +320,76 @@ def test_stop_and_respond_discards_short_audio():
     
     assert result == ""
     assert machine.state is State.IDLE
+
+
+def test_stop_and_respond_discards_short_audio_restarts_auto_listening():
+    vad_manager = FakeVADManager()
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING)
+    config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=True),
+        vad=VADConfig(enabled=True)
+    )
+    
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        config=config,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+    )
+    
+    recorder.is_recording = True
+    
+    from verse.audio.capture import samples_to_wav_bytes
+    empty_wav = samples_to_wav_bytes(np.zeros(10), 16000)
+    def mock_stop():
+        recorder.is_recording = False
+        return empty_wav
+    recorder.stop_recording = mock_stop
+    
+    result = asyncio.run(orch.stop_and_respond())
+    
+    assert result == ""
+    # Should transition to LISTENING state since auto-listening restarts
+    assert machine.state is State.LISTENING
+    assert orch._auto_listening is True
+
+
+@pytest.mark.anyio
+async def test_auto_respond_with_utterance_discards_short_audio_restarts_auto_listening():
+    vad_manager = FakeVADManager()
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING)
+    config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=True),
+        vad=VADConfig(enabled=True)
+    )
+    
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        config=config,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+    )
+    
+    recorder.is_recording = True
+    
+    # We pass an empty list of chunks, which yields short/empty audio
+    await orch._auto_respond_with_utterance([])
+    
+    # Should transition to LISTENING state since auto-listening restarts
+    assert machine.state is State.LISTENING
+    assert orch._auto_listening is True
+

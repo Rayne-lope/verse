@@ -103,6 +103,8 @@ class Orchestrator:
         
         if _is_audio_too_short(audio):
             self.state_machine.audio_done()
+            if self.config.hotkey.conversation_mode:
+                self.start_auto_listening()
             return ""
             
         self.state_machine.hotkey_released()
@@ -413,6 +415,8 @@ class Orchestrator:
 
             if _is_audio_too_short(audio):
                 self.state_machine.audio_done()
+                if self.config.hotkey.conversation_mode:
+                    self.start_auto_listening()
                 return
 
             self.state_machine.hotkey_released()
