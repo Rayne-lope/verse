@@ -72,3 +72,36 @@ def test_attach_state_machine_enqueues_state_change():
     message = server._queue.get_nowait()
     assert message == {"type": "state_change", "state": "listening"}
     assert machine.state is State.LISTENING
+
+
+def test_all_state_transitions_are_broadcasted():
+    server = WebSocketServer()
+    machine = StateMachine()
+    server.attach_state_machine(machine)
+
+    # 1. idle -> listening
+    machine.transition(StateTrigger.HOTKEY_PRESS)
+    msg = server._queue.get_nowait()
+    assert msg == {"type": "state_change", "state": "listening"}
+
+    # 2. listening -> thinking
+    machine.transition(StateTrigger.HOTKEY_RELEASE)
+    msg = server._queue.get_nowait()
+    assert msg == {"type": "state_change", "state": "thinking"}
+
+    # 3. thinking -> speaking
+    machine.transition(StateTrigger.TTS_READY)
+    msg = server._queue.get_nowait()
+    assert msg == {"type": "state_change", "state": "speaking"}
+
+    # 4. speaking -> idle
+    machine.transition(StateTrigger.AUDIO_DONE)
+    msg = server._queue.get_nowait()
+    assert msg == {"type": "state_change", "state": "idle"}
+
+    # 5. idle -> error
+    machine.transition(StateTrigger.ERROR, metadata={"message": "test error"})
+    msg1 = server._queue.get_nowait()
+    assert msg1 == {"type": "state_change", "state": "error"}
+    msg2 = server._queue.get_nowait()
+    assert msg2 == {"type": "error", "message": "test error", "recoverable": True}

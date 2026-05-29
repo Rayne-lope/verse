@@ -30,3 +30,4 @@
 {"id":"int-72db078f","kind":"field_change","created_at":"2026-05-29T13:41:25.271191Z","actor":"Rayne-lope","issue_id":"verse-2k5","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"done"}}
 {"id":"int-2f060b31","kind":"field_change","created_at":"2026-05-29T13:41:44.805117Z","actor":"Rayne-lope","issue_id":"verse-k0j","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"done"}}
 {"id":"int-aae7441b","kind":"field_change","created_at":"2026-05-29T14:04:24.653137Z","actor":"Rayne-lope","issue_id":"verse-9ju","extra":{"field":"assignee","new_value":"gemini","old_value":""}}
+{"id":"int-43d38e50","kind":"field_change","created_at":"2026-05-29T14:13:01.076845Z","actor":"Rayne-lope","issue_id":"verse-c9f","extra":{"field":"assignee","new_value":"gemini","old_value":""}}
