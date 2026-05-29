@@ -181,7 +181,9 @@ class VADEndpointingStateMachine:
             if probability < self.config.end_threshold:
                 self._consecutive_silence_frames += 1
             else:
-                self._consecutive_silence_frames = 0
+                # Decrement by 2 (down to 0) instead of immediate reset to 0
+                # to handle AC hum, brief mouth clicks, or music beats gracefully
+                self._consecutive_silence_frames = max(0, self._consecutive_silence_frames - 2)
 
             speech_duration_ms = len(self._speech_frames) * self._frame_ms
 
