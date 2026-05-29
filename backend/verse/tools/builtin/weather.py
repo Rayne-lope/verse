@@ -16,6 +16,14 @@ def get_weather(city: str) -> str:
         geo_data = geo_res.json()
 
         results = geo_data.get("results", [])
+        if not results and len(city.strip().split()) > 1:
+            fallback_city = city.strip().split()[0]
+            geocode_url = f"https://geocoding-api.open-meteo.com/v1/search?name={requests.utils.quote(fallback_city)}&count=1&language=en&format=json"
+            geo_res = requests.get(geocode_url, timeout=10)
+            geo_res.raise_for_status()
+            geo_data = geo_res.json()
+            results = geo_data.get("results", [])
+
         if not results:
             return f"Could not find coordinates for city: '{city}'."
 

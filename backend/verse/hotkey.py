@@ -36,6 +36,7 @@ class HotkeyListener:
         self._active = False
         self._listener: Any = None
         self._press_started_at: float | None = None
+        self._started_at = perf_counter() - 1.0
 
     @property
     def is_active(self) -> bool:
@@ -45,6 +46,7 @@ class HotkeyListener:
         if self._listener is not None:
             return
 
+        self._started_at = perf_counter()
         keyboard = _load_keyboard()
         self._listener = keyboard.Listener(
             on_press=self._handle_press,
@@ -61,6 +63,8 @@ class HotkeyListener:
         self._pressed_keys.clear()
 
     def _handle_press(self, key: Any) -> None:
+        if perf_counter() - self._started_at < 0.5:
+            return
         normalized = normalize_key(key)
         if normalized is None:
             return
