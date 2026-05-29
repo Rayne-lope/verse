@@ -65,7 +65,7 @@ class DeepSeekAdapter(LLMAdapter):
                 ) from exc
             self._client = OpenAI(
                 api_key=api_key,
-                base_url="https://api.deepseek.com",
+                base_url=self.config.base_url,
             )
         return self._client
 

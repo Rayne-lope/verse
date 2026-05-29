@@ -28,16 +28,18 @@ class AudioRecorder:
     def is_recording(self) -> bool:
         return self._recording
 
-    def start_recording(self) -> None:
+    def start_recording(self, on_audio_level: Callable[[float], None] | None = None) -> None:
         if self._recording:
             raise RuntimeError("Audio recording is already running")
 
         self._chunks = []
+        self._on_audio_level = on_audio_level
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype=self.dtype,
             callback=self._on_audio,
+            blocksize=512,
         )
         self._stream.start()
         self._recording = True
@@ -74,6 +76,12 @@ class AudioRecorder:
             # sounddevice status flags are diagnostics; keep recording and retain data.
             pass
         self._chunks.append(indata.copy())
+        if hasattr(self, "_on_audio_level") and self._on_audio_level:
+            # Calculate RMS amplitude
+            rms = np.sqrt(np.mean(np.square(indata)))
+            # Scale and clip between 0.0 and 1.0
+            level = min(1.0, max(0.0, float(rms) * 5.0))
+            self._on_audio_level(level)
 
 
 def samples_to_wav_bytes(samples: np.ndarray[Any, Any], sample_rate: int) -> bytes:
@@ -85,8 +93,8 @@ def samples_to_wav_bytes(samples: np.ndarray[Any, Any], sample_rate: int) -> byt
 _default_recorder = AudioRecorder()
 
 
-def start_recording() -> None:
-    _default_recorder.start_recording()
+def start_recording(on_audio_level: Callable[[float], None] | None = None) -> None:
+    _default_recorder.start_recording(on_audio_level=on_audio_level)
 
 
 def stop_recording() -> bytes:

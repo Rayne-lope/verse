@@ -44,6 +44,15 @@ def test_deepseek_adapter_returns_text_without_tools():
     }
 
 
+def test_deepseek_adapter_builds_client_with_config_base_url(monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy-key")
+    adapter = DeepSeekAdapter(
+        LLMConfig(model="deepseek-v4-flash-free", base_url="https://opencode.ai/zen/v1")
+    )
+
+    assert str(adapter.client.base_url).rstrip("/") == "https://opencode.ai/zen/v1"
+
+
 def test_deepseek_adapter_serializes_tool_calls():
     function = SimpleNamespace(name="open_app", arguments='{"app_name":"Music"}')
     tool_call = SimpleNamespace(id="call_1", type="function", function=function)

@@ -8,7 +8,11 @@ language = "auto"
 
 [llm]
 provider = "deepseek"
-model = "deepseek-chat"
+# Default DeepSeek resmi: model = "deepseek-chat", base_url = "https://api.deepseek.com"
+# Setup gateway opencode-go (OpenAI-compatible):
+model = "deepseek-v4-flash-free"
+base_url = "https://opencode.ai/zen/v1"
+# API key disimpan via env DEEPSEEK_API_KEY atau Keychain: set_api_key("deepseek", "sk-...")
 temperature = 0.7
 max_history = 10
 

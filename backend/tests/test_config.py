@@ -6,6 +6,24 @@ def test_load_config_defaults_when_file_is_missing(tmp_path):
 
     assert config == AppConfig()
     assert config.llm.max_history == 10
+    assert config.llm.base_url == "https://api.deepseek.com"
+
+
+def test_load_config_parses_llm_base_url(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[llm]
+model = "deepseek-v4-flash-free"
+base_url = "https://opencode.ai/zen/v1"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.llm.model == "deepseek-v4-flash-free"
+    assert config.llm.base_url == "https://opencode.ai/zen/v1"
 
 
 def test_load_config_merges_toml_values(tmp_path):

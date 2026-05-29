@@ -43,3 +43,25 @@ body,
     0 16px 36px oklch(14% 0.03 260 / 0.28),
     inset 0 0 24px oklch(97% 0.018 250 / 0.24);
 }
+
+.ws-status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: oklch(70% 0.02 250);
+}
+
+.ws-status[data-status="open"] {
+  background: oklch(72% 0.17 145);
+}
+
+.ws-status[data-status="connecting"] {
+  background: oklch(80% 0.16 90);
+}
+
+.ws-status[data-status="closed"] {
+  background: oklch(64% 0.2 25);
+}

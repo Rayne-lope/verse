@@ -58,3 +58,57 @@ def test_play_audio_sends_samples_to_sounddevice(monkeypatch):
     play_audio(audio_bytes)
 
     assert played == {"shape": (4, 1), "sample_rate": 22_050, "waited": True}
+
+
+def test_audio_recorder_calls_on_audio_level(monkeypatch):
+    levels = []
+
+    class FakeInputStream:
+        def __init__(self, *, callback, **_kwargs):
+            self.callback = callback
+
+        def start(self):
+            self.callback(np.ones((512, 1), dtype="float32"), 512, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("verse.audio.capture.sd.InputStream", FakeInputStream)
+
+    recorder = AudioRecorder(sample_rate=8_000)
+    recorder.start_recording(on_audio_level=levels.append)
+    recorder.stop_recording()
+
+    assert len(levels) == 1
+    assert levels[0] == 1.0
+
+
+def test_play_audio_calls_on_audio_level(monkeypatch):
+    levels = []
+
+    class FakeOutputStream:
+        def __init__(self, *, callback, finished_callback, **_kwargs):
+            self.callback = callback
+            self.finished_callback = finished_callback
+
+        def __enter__(self):
+            outdata = np.zeros((512, 1), dtype="float32")
+            try:
+                self.callback(outdata, 512, None, None)
+            except Exception:
+                pass
+            self.finished_callback()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    monkeypatch.setattr("verse.audio.playback.sd.OutputStream", FakeOutputStream)
+
+    audio_bytes = samples_to_wav_bytes(np.ones((1024, 1), dtype="float32"), 16_000)
+    play_audio(audio_bytes, blocking=True, on_audio_level=levels.append)
+
+    assert len(levels) >= 1

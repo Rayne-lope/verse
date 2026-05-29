@@ -25,6 +25,7 @@ class STTConfig:
 class LLMConfig:
     provider: str = "deepseek"
     model: str = "deepseek-chat"
+    base_url: str = "https://api.deepseek.com"
     temperature: float = 0.7
     max_history: int = 10
 
@@ -89,6 +90,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
         llm=LLMConfig(
             provider=str(llm.get("provider", LLMConfig.provider)),
             model=str(llm.get("model", LLMConfig.model)),
+            base_url=str(llm.get("base_url", LLMConfig.base_url)),
             temperature=float(llm.get("temperature", LLMConfig.temperature)),
             max_history=int(llm.get("max_history", LLMConfig.max_history)),
         ),
