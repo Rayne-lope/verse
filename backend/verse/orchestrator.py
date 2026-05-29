@@ -168,10 +168,41 @@ class Orchestrator:
             self.on_tool_executed(name, result)
         return result
 
+    def _clean_markdown_for_tts(self, text: str) -> str:
+        import re
+        if not text:
+            return ""
+        
+        # Process lines: remove list and numbering markers, ensure ending punctuation for natural pauses
+        lines = []
+        for line in text.splitlines():
+            cleaned_line = line.strip()
+            cleaned_line = re.sub(r'^[-*+]\s+', '', cleaned_line)
+            cleaned_line = re.sub(r'^\d+\.\s+', '', cleaned_line)
+            if cleaned_line:
+                if not cleaned_line[-1] in ".!?,;:":
+                    cleaned_line += "."
+                lines.append(cleaned_line)
+                
+        text = " ".join(lines)
+        
+        # Strip markdown symbols
+        text = re.sub(r'\*+', '', text)
+        text = re.sub(r'_+', '', text)
+        text = re.sub(r'`+', '', text)
+        text = re.sub(r'#+\s+', '', text)
+        
+        # Strip double spaces and correct spaces before punctuation
+        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r'\s+([.!?,;:])', r'\1', text)
+        
+        return text.strip()
+
     async def _speak(self, text: str) -> None:
         self.state_machine.tts_ready()
         if text:
-            audio = await self.tts.synthesize(text)
+            clean_text = self._clean_markdown_for_tts(text)
+            audio = await self.tts.synthesize(clean_text)
             if audio and self._play is not None:
                 try:
                     self._play(audio, on_audio_level=self.on_audio_level)

@@ -284,7 +284,7 @@ def test_conversation_mode_silence_detection_triggers_response():
     loop.run_until_complete(run_brief())
     
     assert orch._auto_listening is False
-    assert tts.spoken == ["response"]
+    assert tts.spoken == ["response."]
     assert machine.state is State.IDLE
     loop.close()
 
@@ -325,3 +325,24 @@ def test_conversation_mode_timeout_returns_to_idle():
     assert recorder.is_recording is False
     assert machine.state is State.IDLE
     loop.close()
+
+
+def test_clean_markdown_for_tts():
+    orch = Orchestrator(
+        stt=FakeSTT(""),
+        llm=FakeLLM([]),
+        tts=FakeTTS(),
+        registry=ToolRegistry(),
+        state_machine=StateMachine(),
+    )
+    
+    input_text = "Berikut beberapa catatan Anda:\n* **Belanja**: Beli susu\n* **Kerja**: Kirim email ke Rayne"
+    cleaned = orch._clean_markdown_for_tts(input_text)
+    
+    # Expected output should have clean text and correct pauses
+    assert "Berikut beberapa catatan Anda:" in cleaned
+    assert "Belanja: Beli susu." in cleaned
+    assert "Kerja: Kirim email ke Rayne." in cleaned
+    assert "*" not in cleaned
+    assert "**" not in cleaned
+
