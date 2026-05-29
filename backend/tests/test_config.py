@@ -41,6 +41,10 @@ max_history = 4
 
 [tools]
 enabled = ["open_app"]
+
+[vad]
+enabled = false
+start_threshold = 0.65
 """,
         encoding="utf-8",
     )
@@ -54,3 +58,6 @@ enabled = ["open_app"]
     assert config.llm.model == "gpt-4.1-mini"
     assert config.llm.max_history == 4
     assert config.tools.enabled == ["open_app"]
+    assert config.vad.enabled is False
+    assert config.vad.start_threshold == 0.65
+    assert config.vad.end_threshold == 0.35

@@ -60,12 +60,27 @@ class ToolsConfig:
 
 
 @dataclass(frozen=True)
+class VADConfig:
+    enabled: bool = True
+    model_path: str = "~/.verse/models/silero_vad.onnx"
+    start_threshold: float = 0.55
+    end_threshold: float = 0.35
+    speech_start_ms: int = 160
+    min_utterance_ms: int = 500
+    end_silence_ms: int = 1400
+    max_utterance_ms: int = 20000
+    pre_roll_ms: int = 300
+    followup_timeout_s: float = 5.0
+
+
+@dataclass(frozen=True)
 class AppConfig:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    vad: VADConfig = field(default_factory=VADConfig)
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
@@ -85,6 +100,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     llm = raw_config.get("llm", {})
     tts = raw_config.get("tts", {})
     tools = raw_config.get("tools", {})
+    vad = raw_config.get("vad", {})
 
     return AppConfig(
         hotkey=HotkeyConfig(
@@ -113,5 +129,17 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             spotify_client_id=str(
                 tools.get("spotify_client_id", ToolsConfig.spotify_client_id)
             ),
+        ),
+        vad=VADConfig(
+            enabled=bool(vad.get("enabled", VADConfig.enabled)),
+            model_path=str(vad.get("model_path", VADConfig.model_path)),
+            start_threshold=float(vad.get("start_threshold", VADConfig.start_threshold)),
+            end_threshold=float(vad.get("end_threshold", VADConfig.end_threshold)),
+            speech_start_ms=int(vad.get("speech_start_ms", VADConfig.speech_start_ms)),
+            min_utterance_ms=int(vad.get("min_utterance_ms", VADConfig.min_utterance_ms)),
+            end_silence_ms=int(vad.get("end_silence_ms", VADConfig.end_silence_ms)),
+            max_utterance_ms=int(vad.get("max_utterance_ms", VADConfig.max_utterance_ms)),
+            pre_roll_ms=int(vad.get("pre_roll_ms", VADConfig.pre_roll_ms)),
+            followup_timeout_s=float(vad.get("followup_timeout_s", VADConfig.followup_timeout_s)),
         ),
     )
