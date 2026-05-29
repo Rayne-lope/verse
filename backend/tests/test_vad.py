@@ -19,13 +19,11 @@ def test_silero_vad_manager_reset():
     with patch("verse.audio.vad.ort.InferenceSession") as mock_session:
         manager = SileroVADManager()
         # Set dummy recurrent states
-        manager._h = np.ones((2, 1, 64), dtype=np.float32)
-        manager._c = np.ones((2, 1, 64), dtype=np.float32)
+        manager._state = np.ones((2, 1, 128), dtype=np.float32)
         
         manager.reset()
         
-        assert np.all(manager._h == 0.0)
-        assert np.all(manager._c == 0.0)
+        assert np.all(manager._state == 0.0)
 
 
 def test_silero_vad_manager_predict_invalid_inputs():
@@ -43,8 +41,7 @@ def test_silero_vad_manager_predict_success():
         mock_session_inst = MagicMock()
         mock_session_inst.run.return_value = (
             np.array([[0.85]], dtype=np.float32),  # probability output
-            np.ones((2, 1, 64), dtype=np.float32) * 0.1,  # updated h
-            np.ones((2, 1, 64), dtype=np.float32) * 0.2,  # updated c
+            np.ones((2, 1, 128), dtype=np.float32) * 0.1,  # updated state
         )
         mock_sess_class.return_value = mock_session_inst
 
@@ -57,5 +54,4 @@ def test_silero_vad_manager_predict_success():
             prob = manager.predict(frame)
             
             assert prob == pytest.approx(0.85)
-            assert np.allclose(manager._h, 0.1)
-            assert np.allclose(manager._c, 0.2)
+            assert np.allclose(manager._state, 0.1)

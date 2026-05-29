@@ -23,8 +23,7 @@ class SileroVADManager:
     def __init__(self, model_path: str | Path = "~/.verse/models/silero_vad.onnx") -> None:
         self.model_path = Path(model_path).expanduser()
         self.session = None
-        self._h = np.zeros((2, 1, 64), dtype=np.float32)
-        self._c = np.zeros((2, 1, 64), dtype=np.float32)
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
         
         if ort is None:
             logger.warning("onnxruntime is not installed. Silero VAD will not be available.")
@@ -42,9 +41,8 @@ class SileroVADManager:
         return self.session is not None
 
     def reset(self) -> None:
-        """Reset the internal recurrent state (LSTM) of the VAD model."""
-        self._h = np.zeros((2, 1, 64), dtype=np.float32)
-        self._c = np.zeros((2, 1, 64), dtype=np.float32)
+        """Reset the internal recurrent state of the VAD model."""
+        self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def predict(self, frame: np.ndarray) -> float:
         """Predict speech probability for a 1D float32 NumPy array of 512 samples.
@@ -61,21 +59,19 @@ class SileroVADManager:
         try:
             # Ensure float32 and shape (1, 512)
             input_data = np.expand_dims(frame.astype(np.float32), axis=0)
-            sr_data = np.array([16000], dtype=np.int64)
+            sr_data = np.array(16000, dtype=np.int64)
 
             inputs = {
                 "input": input_data,
                 "sr": sr_data,
-                "h": self._h,
-                "c": self._c,
+                "state": self._state,
             }
 
             # Run inference
-            out, hn, cn = self.session.run(None, inputs)
+            out, stateN = self.session.run(None, inputs)
             
             # Save updated recurrent states for the next prediction frame
-            self._h = hn
-            self._c = cn
+            self._state = stateN
 
             return float(out[0][0])
         except Exception as exc:
