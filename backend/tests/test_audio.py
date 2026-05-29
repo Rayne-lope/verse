@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from verse.audio.capture import AudioRecorder, samples_to_wav_bytes
 from verse.audio.playback import play_audio, wav_bytes_to_samples
@@ -112,3 +113,66 @@ def test_play_audio_calls_on_audio_level(monkeypatch):
     play_audio(audio_bytes, blocking=True, on_audio_level=levels.append)
 
     assert len(levels) >= 1
+
+
+@pytest.mark.anyio
+async def test_audio_recorder_bounded_asyncio_queue(monkeypatch):
+    class FakeInputStream:
+        def __init__(self, *, callback, **_kwargs):
+            self.callback = callback
+
+        def start(self):
+            # Send two frames
+            self.callback(np.ones((512, 1), dtype="float32") * 0.5, 512, None, None)
+            self.callback(np.ones((512, 1), dtype="float32") * 0.75, 512, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("verse.audio.capture.sd.InputStream", FakeInputStream)
+
+    recorder = AudioRecorder(sample_rate=16_000)
+    recorder.start_recording()
+    
+    assert recorder._queue is not None
+    
+    chunk1 = await recorder.read_chunk()
+    chunk2 = await recorder.read_chunk()
+    
+    assert np.all(chunk1 == 0.5)
+    assert np.all(chunk2 == 0.75)
+    
+    recorder.stop_recording()
+
+
+@pytest.mark.anyio
+async def test_audio_recorder_queue_overflow(monkeypatch):
+    class FakeInputStream:
+        def __init__(self, *, callback, **_kwargs):
+            self.callback = callback
+
+        def start(self):
+            # Send 130 frames to overflow a queue of size 128
+            for i in range(130):
+                self.callback(np.ones((512, 1), dtype="float32") * i, 512, None, None)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("verse.audio.capture.sd.InputStream", FakeInputStream)
+
+    recorder = AudioRecorder(sample_rate=16_000)
+    recorder.start_recording()
+    
+    # Queue size is max 128. Since we sent 130, oldest 2 should be dropped.
+    # The first one returned should be index 2 (val 2.0)
+    chunk = await recorder.read_chunk()
+    assert np.all(chunk == 2.0)
+    
+    recorder.stop_recording()
