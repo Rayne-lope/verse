@@ -55,6 +55,12 @@ class ToolsConfig:
             "read_calendar",
             "read_reminders",
             "add_reminder",
+            "complete_reminder",
+            "create_event",
+            "send_message",
+            "find_contact",
+            "run_shortcut",
+            "list_shortcuts",
             "remember",
         ]
     )

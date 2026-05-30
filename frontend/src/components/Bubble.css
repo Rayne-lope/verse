@@ -3,7 +3,15 @@
 @property --orb-hue {
   syntax: "<number>";
   inherits: true;
-  initial-value: 250;
+  initial-value: 255;
+}
+
+/* Chroma is per-state too, so saturation morphs alongside hue (idle is muted,
+   active states are vivid) — this is what makes states unmistakable, not just hue. */
+@property --orb-chroma {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.09;
 }
 
 .bubble-stage {
@@ -17,13 +25,14 @@
 }
 
 .orb {
-  /* Per-state themeable tokens (consumed in #4) */
-  --orb-hue: 250;
-  --orb-tint: oklch(70% 0.13 var(--orb-hue) / 0.34);
-  --orb-tint-deep: oklch(55% 0.15 var(--orb-hue) / 0.4);
-  --orb-glow: oklch(72% 0.16 var(--orb-hue) / 0.5);
-  --orb-shimmer-speed: 18s;
-  --orb-breathe-speed: 6s;
+  /* Per-state themeable tokens — hue + chroma both interpolate */
+  --orb-hue: 255;
+  --orb-chroma: 0.09;
+  --orb-tint: oklch(72% calc(var(--orb-chroma) * 1.15) var(--orb-hue) / 0.48);
+  --orb-tint-deep: oklch(52% calc(var(--orb-chroma) * 1.25) var(--orb-hue) / 0.6);
+  --orb-glow: oklch(72% calc(var(--orb-chroma) + 0.04) var(--orb-hue) / 0.62);
+  --orb-shimmer-speed: 20s;
+  --orb-breathe-speed: 7.5s;
   --audio: 0;
 
   width: 120px;
@@ -32,18 +41,46 @@
   position: relative;
   transform: translateZ(0);
   scale: 1;
-  transition: --orb-hue 450ms ease, scale 160ms ease;
+  transition: --orb-hue 450ms ease, --orb-chroma 450ms ease, scale 160ms ease;
   animation: orb-breathe var(--orb-breathe-speed) ease-in-out infinite;
 }
 
-/* Per-state theming & motion (#4) — color follows --orb-hue */
-.orb[data-state="idle"] { --orb-hue: 250; }
-.orb[data-state="listening"] { --orb-hue: 200; }
-.orb[data-state="thinking"] {
-  --orb-hue: 290;
-  --orb-shimmer-speed: 7s;
+/* Per-state theming & motion (#4) — color follows --orb-hue + --orb-chroma,
+   and each state gets its own movement signature so it reads at a glance. */
+.orb[data-state="idle"] {
+  --orb-hue: 255;   /* indigo, calm */
+  --orb-chroma: 0.09;
 }
-.orb[data-state="speaking"] { --orb-hue: 330; }
+.orb[data-state="listening"] {
+  --orb-hue: 195;   /* cyan, attentive */
+  --orb-chroma: 0.17;
+}
+.orb[data-state="thinking"] {
+  --orb-hue: 300;   /* violet, processing */
+  --orb-chroma: 0.18;
+  --orb-shimmer-speed: 5s;
+}
+.orb[data-state="speaking"] {
+  --orb-hue: 350;   /* warm pink, expressive */
+  --orb-chroma: 0.19;
+}
+
+/* listening: an iridescent rainbow halo blooms and slowly swirls + breathes around
+   the orb (independent of audio), so it's clearly "listening" before any sound. */
+.orb[data-state="listening"] .orb__aura {
+  opacity: 0.95;
+  animation:
+    orb-aura-spin 6s linear infinite,
+    orb-aura-breathe 2.4s ease-in-out infinite;
+}
+/* thinking: a small specular point orbits → reads as "working". */
+.orb[data-state="thinking"] .orb__highlight {
+  animation: orb-think-orbit 3.2s linear infinite;
+}
+/* speaking: subtle shape wobble layered on top of the audio-reactive scale. */
+.orb[data-state="speaking"] .orb__body {
+  animation: orb-speak-wobble 0.9s ease-in-out infinite;
+}
 
 /* Audio-reactive scale (#5) — drives off smoothed --audio, gated to active states */
 .orb[data-state="listening"],
@@ -52,11 +89,15 @@
   scale: calc(1 + var(--audio, 0) * 0.14);
   transition: scale 80ms linear, --orb-hue 450ms ease;
 }
-.orb[data-state="listening"] .orb__glow,
 .orb[data-state="speaking"] .orb__glow {
   box-shadow:
     0 10px 30px oklch(20% 0.04 var(--orb-hue) / 0.35),
     0 0 calc(28px + var(--audio, 0) * 34px) var(--orb-glow);
+}
+/* listening: soft colored glow only — NO dark drop-shadow, so no black ring.
+   The colorful halo lives in .orb__aura. */
+.orb[data-state="listening"] .orb__glow {
+  box-shadow: 0 0 calc(30px + var(--audio, 0) * 36px) var(--orb-glow);
 }
 .orb[data-state="speaking"] .eye {
   scale: 1 calc(1 + var(--audio, 0) * 0.25);
@@ -72,6 +113,31 @@
   inset: 0;
   border-radius: 50%;
   pointer-events: none;
+}
+
+/* Iridescent halo behind the orb — a blurred rainbow ring. Hidden by default;
+   only blooms on listening (#4 below) for a luxe "warna-warni glowing" look. */
+.orb__aura {
+  z-index: 0;
+  inset: -44px;
+  opacity: 0;
+  mix-blend-mode: screen;
+  filter: blur(15px) saturate(1.3);
+  background: conic-gradient(
+    from 0deg,
+    oklch(85% 0.3 20),
+    oklch(90% 0.26 70),
+    oklch(90% 0.28 140),
+    oklch(86% 0.26 195),
+    oklch(82% 0.3 265),
+    oklch(84% 0.32 315),
+    oklch(86% 0.28 350),
+    oklch(85% 0.3 20)
+  );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 32%, black 50%, black 66%, transparent 90%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 32%, black 50%, black 66%, transparent 90%);
+  will-change: transform, opacity;
+  transition: opacity 450ms ease;
 }
 
 /* Soft floating glow behind the orb */
@@ -96,25 +162,63 @@
     inset 0 8px 18px oklch(100% 0 0 / 0.28);
 }
 
-/* Iridescent soap-bubble shimmer */
+/* Iridescent soap-bubble shimmer — primary oil-film layer */
 .orb__iridescence {
   z-index: 2;
-  opacity: 0.4;
+  opacity: 0.42;
   mix-blend-mode: screen;
   background: conic-gradient(
     from 0deg,
-    oklch(75% 0.2 20),
-    oklch(85% 0.18 90),
-    oklch(82% 0.18 150),
-    oklch(80% 0.16 210),
-    oklch(72% 0.2 290),
-    oklch(75% 0.22 340),
-    oklch(75% 0.2 20)
+    oklch(78% 0.24 20),
+    oklch(88% 0.2 80),
+    oklch(85% 0.22 140),
+    oklch(82% 0.2 195),
+    oklch(76% 0.24 270),
+    oklch(78% 0.26 320),
+    oklch(80% 0.22 350),
+    oklch(78% 0.24 20)
   );
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 18%, black 58%, transparent 92%);
-  mask-image: radial-gradient(circle at 50% 50%, transparent 18%, black 58%, transparent 92%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 16%, black 56%, transparent 94%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 16%, black 56%, transparent 94%);
   will-change: transform;
   animation: orb-shimmer var(--orb-shimmer-speed) linear infinite;
+}
+
+/* Second oil-film layer — counter-rotating, different speed. The interference
+   between the two layers is what reads as a moving liquid film. */
+.orb__iridescence2 {
+  z-index: 2;
+  opacity: 0.26;
+  mix-blend-mode: screen;
+  background: conic-gradient(
+    from 140deg,
+    oklch(82% 0.2 300),
+    oklch(80% 0.22 200),
+    oklch(86% 0.2 120),
+    oklch(82% 0.24 40),
+    oklch(80% 0.22 340),
+    oklch(82% 0.2 300)
+  );
+  -webkit-mask-image: radial-gradient(circle at 46% 54%, transparent 22%, black 60%, transparent 90%);
+  mask-image: radial-gradient(circle at 46% 54%, transparent 22%, black 60%, transparent 90%);
+  will-change: transform;
+  animation: orb-shimmer-rev calc(var(--orb-shimmer-speed) * 1.35) linear infinite;
+}
+
+/* Wet caustics — soft white light pools that drift slowly across the surface,
+   giving the refractive "liquid light" play. */
+.orb__caustics {
+  z-index: 2;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(ellipse 30% 22% at 30% 36%, oklch(100% 0 0 / 0.5), transparent 60%),
+    radial-gradient(ellipse 24% 18% at 68% 60%, oklch(96% 0.06 var(--orb-hue) / 0.4), transparent 62%),
+    radial-gradient(circle 10% at 56% 26%, oklch(100% 0 0 / 0.35), transparent 70%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 52%, transparent 84%);
+  mask-image: radial-gradient(circle at 50% 50%, black 52%, transparent 84%);
+  will-change: transform;
+  animation: orb-caustics 9s ease-in-out infinite;
 }
 
 /* Specular glass highlights */
@@ -125,12 +229,14 @@
     radial-gradient(circle 4px at 68% 30%, oklch(100% 0 0 / 0.9), transparent 70%);
 }
 
-/* Bright rim light at the edge */
+/* Bright fresnel rim light at the edge — sells the wet/refractive droplet look */
 .orb__rim {
   z-index: 4;
   box-shadow:
-    inset 0 0 0 1px oklch(100% 0 0 / 0.35),
-    inset 0 2px 6px oklch(100% 0 0 / 0.4);
+    inset 0 0 0 1px oklch(100% 0 0 / 0.5),
+    inset 0 2px 7px oklch(100% 0 0 / 0.45),
+    inset 0 -3px 10px oklch(90% 0.08 var(--orb-hue) / 0.35);
+  background: radial-gradient(circle at 50% 50%, transparent 70%, oklch(100% 0 0 / 0.18) 96%);
 }
 
 /* Eyes (#3) */
@@ -142,7 +248,12 @@
   justify-content: center;
   gap: 16px;
   transform: translateY(-6px);
+  /* The whole pair of eyes drifts toward the mouse (gaze), composed via the
+     independent `translate` property so it doesn't fight the transform-based
+     drift/think animations. */
+  translate: var(--gaze-x, 0px) var(--gaze-y, 0px);
   animation: eye-drift 7s ease-in-out infinite;
+  transition: opacity 300ms ease, translate 90ms ease-out;
 }
 
 .eye {
@@ -193,10 +304,9 @@
   75% { transform: translate(2px, 0) rotate(2deg); }
 }
 
-@keyframes eye-drift {
-  0%, 100% { transform: translate(0, -6px); }
-  30% { transform: translate(-2px, -5px); }
-  65% { transform: translate(2px, -7px); }
+.orb[data-state="idle"] .eyes {
+  animation: none;
+  transform: translate(0, -6px);
 }
 
 @keyframes orb-breathe {
@@ -208,13 +318,125 @@
   to { transform: rotate(360deg); }
 }
 
+/* Counter-rotation for the second oil-film layer */
+@keyframes orb-shimmer-rev {
+  to { transform: rotate(-360deg); }
+}
+
+/* Drifting wet light pools */
+@keyframes orb-caustics {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(6%, -4%) scale(1.05); }
+  66%      { transform: translate(-5%, 5%) scale(0.97); }
+}
+
+/* listening: rainbow halo slowly swirls around the orb */
+@keyframes orb-aura-spin {
+  to { transform: rotate(360deg); }
+}
+/* listening: halo gently breathes (scale + opacity) — replaces the old dark pulse */
+@keyframes orb-aura-breathe {
+  0%, 100% { scale: 1; opacity: 0.85; }
+  50%      { scale: 1.07; opacity: 1; }
+}
+
+/* thinking: specular highlight orbits the surface */
+@keyframes orb-think-orbit {
+  to { transform: rotate(360deg); }
+}
+
+/* speaking: gummy talk wobble */
+@keyframes orb-speak-wobble {
+  0%, 100% { border-radius: 50%; }
+  30%      { border-radius: 48% 52% 53% 47% / 51% 48% 52% 49%; }
+  60%      { border-radius: 52% 48% 47% 53% / 49% 52% 48% 51%; }
+}
+
+@keyframes eye-drift {
+  0%, 100% { transform: translate(0, -6px); }
+  30% { transform: translate(-2px, -5px); }
+  65% { transform: translate(2px, -7px); }
+}
+
+/* Sphere Eye — MSG Sphere Vegas-inspired giant eye mode, idle only */
+.orb__sphere-eye {
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 600ms ease;
+  background:
+    radial-gradient(circle 20% at 50% 50%,
+      oklch(5% 0.01 var(--orb-hue) / 0.97) 0%,
+      oklch(10% 0.03 var(--orb-hue) / 0.95) 55%,
+      transparent 100%),
+    radial-gradient(ellipse 38% 40% at 50% 50%,
+      oklch(50% 0.2 var(--orb-hue) / 0.9) 0%,
+      oklch(38% 0.16 var(--orb-hue) / 0.82) 40%,
+      oklch(28% 0.09 var(--orb-hue) / 0.5) 72%,
+      transparent 100%),
+    radial-gradient(ellipse 12% 9% at calc(38% + var(--sphere-gaze-x, 0px) * 0.3) calc(38% + var(--sphere-gaze-y, 0px) * 0.3),
+      oklch(100% 0 0 / 0.6) 0%,
+      transparent 100%);
+  transform: translate(
+    var(--sphere-gaze-x, 0px),
+    var(--sphere-gaze-y, 0px)
+  );
+}
+
+/* Sclera overlay — translucent veil that lightens the orb body into an eyeball,
+   using orb's own hue so it stays color-coherent instead of snapping to white. */
+.orb__sphere-sclera {
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 500ms ease;
+  background: radial-gradient(circle at 50% 50%,
+    oklch(98% 0.008 var(--orb-hue) / 0.55) 0%,
+    oklch(96% 0.015 var(--orb-hue) / 0.45) 40%,
+    oklch(93% 0.02 var(--orb-hue) / 0.32) 70%,
+    transparent 100%);
+}
+
+.orb[data-sphere] .orb__sphere-eye {
+  opacity: 1;
+}
+
+.orb[data-sphere] .orb__sphere-sclera {
+  opacity: 1;
+}
+
+.orb[data-sphere] .eyes {
+  opacity: 0;
+}
+
+.orb[data-sphere] .orb__iridescence {
+  opacity: 0.2;
+  transition: opacity 500ms ease;
+}
+
+.orb[data-sphere] .orb__iridescence2 {
+  opacity: 0.14;
+  transition: opacity 500ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orb,
   .orb__iridescence,
+  .orb__iridescence2,
+  .orb__caustics,
+  .orb__aura,
   .eyes,
   .orb[data-state="error"],
-  .orb[data-state="thinking"] .eyes {
+  .orb[data-state="thinking"] .eyes,
+  .orb[data-state="listening"] .orb__aura,
+  .orb[data-state="thinking"] .orb__highlight,
+  .orb[data-state="speaking"] .orb__body {
     animation: none;
+  }
+
+  /* Keep the listening halo visible (static rainbow) even without motion. */
+  .orb[data-state="listening"] .orb__aura {
+    opacity: 0.95;
   }
 
   /* Don't pump the orb/glow/eyes off the audio signal when motion is reduced. */
@@ -230,5 +452,18 @@
   }
   .orb[data-state="speaking"] .eye {
     scale: 1;
+  }
+
+  /* No mouse gaze or sphere-mode when reduced motion */
+  .orb[data-state="idle"] .eyes {
+    animation: eye-drift 7s ease-in-out infinite;
+    transform: none;
+  }
+  .orb__sphere-eye,
+  .orb__sphere-sclera {
+    opacity: 0 !important;
+  }
+  .eyes {
+    translate: none;
   }
 }

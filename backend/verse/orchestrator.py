@@ -28,6 +28,49 @@ logger = logging.getLogger(__name__)
 PlaybackFn = Callable[..., None]
 
 
+def _project_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project stored message rows down to clean LLM messages.
+
+    `ConversationStore.load_recent_messages` returns extra columns (id, conv_id,
+    created_at) that LLM adapters don't expect — keep only role/content (+ tool_calls
+    for assistant messages). Rows without text content are dropped.
+    """
+    projected: list[dict[str, Any]] = []
+    for row in rows:
+        role = row.get("role")
+        content = row.get("content")
+        if not role or content is None:
+            continue
+        msg: dict[str, Any] = {"role": role, "content": content}
+        if role == "assistant" and row.get("tool_calls"):
+            msg["tool_calls"] = row["tool_calls"]
+        projected.append(msg)
+    return projected
+
+
+def _parse_fact_list(text: str) -> list[str]:
+    """Best-effort parse of an LLM reply into a list of fact strings. Tolerates
+    code fences and surrounding prose by extracting the first JSON array."""
+    if not text:
+        return []
+    import json
+    import re
+
+    snippet = text.strip()
+    if "```" in snippet:
+        snippet = re.sub(r"```(?:json)?", "", snippet).strip("` \n")
+    match = re.search(r"\[.*\]", snippet, re.DOTALL)
+    if match:
+        snippet = match.group(0)
+    try:
+        data = json.loads(snippet)
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item.strip() for item in data if isinstance(item, str) and item.strip()]
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -52,6 +95,7 @@ class Orchestrator:
         post_recording_audio_hook: Callable[[Any], Any] | None = None,
         clean_for_stt: Callable[[bytes], bytes] | None = None,
         debug_logger: DebugSessionLogger | None = None,
+        store: Any | None = None,
     ) -> None:
         self.stt = stt
         self.llm = llm
@@ -127,6 +171,26 @@ class Orchestrator:
         self._output_audio_bytes: bytes | None = None
         self._llm_messages: list[dict[str, Any]] = []
         self._llm_response: dict[str, Any] = {}
+
+        # --- Memory ---------------------------------------------------------
+        # Short-term: a rolling window of {role, content} messages used as LLM
+        # context. Long-term: durable facts persisted in `store`, injected into
+        # the system prompt. The store is optional so tests run without a DB.
+        self.store = store
+        self.conv_id: int | None = None
+        self._conversation_history: list[dict[str, Any]] = []
+        if self.store is not None and self.config.memory.enabled:
+            try:
+                self.conv_id = self.store.new_conversation()
+                # Seed with recent messages across previous sessions so Verse
+                # "remembers" the last conversation when it starts up.
+                seeded = self.store.load_recent_messages(
+                    limit=self.config.llm.max_history * 2
+                )
+                self._conversation_history = _project_history(seeded)
+            except Exception as exc:
+                logger.error(f"Failed to init conversation memory: {exc}")
+                self.store = None
 
     @property
     def conversation_mode_active(self) -> bool:
@@ -301,11 +365,15 @@ class Orchestrator:
         if local_reply is not None:
             self._llm_messages = [{"role": "user", "content": transcript}]
             self._llm_response = {"text": local_reply}
+            self._remember_turn(transcript, local_reply)
             return local_reply
 
+        # Use caller-supplied history if given (tests), else the rolling session
+        # history (within + carried over from previous sessions).
+        base_history = history if history else self._conversation_history
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self.system_prompt},
-            *history,
+            {"role": "system", "content": self._compose_system_prompt()},
+            *base_history,
             {"role": "user", "content": transcript},
         ]
         definitions = self.registry.list_definitions(self.config.tools.enabled)
@@ -357,9 +425,101 @@ class Orchestrator:
         if self.debug_logger is not None and self._current_turn_id is not None:
             self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
 
+        self._remember_turn(transcript, reply)
+
         if self.on_assistant_text:
             self.on_assistant_text(reply)
         return reply
+
+    # --- Memory -----------------------------------------------------------
+    def _compose_system_prompt(self) -> str:
+        """Base system prompt + a compact block of long-term facts about the user."""
+        base = self.system_prompt
+        if self.store is None or not self.config.memory.enabled:
+            return base
+        try:
+            facts = self.store.load_memories(limit=self.config.memory.inject_facts)
+        except Exception as exc:
+            logger.error(f"load_memories failed: {exc}")
+            return base
+        if not facts:
+            return base
+        block = "\n".join(f"- {fact}" for fact in facts)
+        return (
+            f"{base}\n\n"
+            "Long-term memory about the user (use naturally, don't recite verbatim):\n"
+            f"{block}"
+        )
+
+    def _remember_turn(self, transcript: str, reply: str) -> None:
+        """Append the turn to the rolling history, persist it, and schedule
+        long-term fact extraction. Best-effort: never raises into the pipeline."""
+        if not self.config.memory.enabled:
+            return
+        transcript = (transcript or "").strip()
+        reply = (reply or "").strip()
+        if not transcript:
+            return
+
+        self._conversation_history.append({"role": "user", "content": transcript})
+        if reply:
+            self._conversation_history.append({"role": "assistant", "content": reply})
+        max_msgs = max(2, self.config.llm.max_history * 2)
+        if len(self._conversation_history) > max_msgs:
+            self._conversation_history = self._conversation_history[-max_msgs:]
+
+        if self.store is None or self.conv_id is None:
+            return
+        try:
+            self.store.save_message(self.conv_id, "user", transcript)
+            if reply:
+                self.store.save_message(self.conv_id, "assistant", reply)
+        except Exception as exc:
+            logger.error(f"save_message failed: {exc}")
+        self._schedule_memory_extraction(transcript, reply)
+
+    def _schedule_memory_extraction(self, transcript: str, reply: str) -> None:
+        """Fire-and-forget extraction so it never adds latency to the spoken reply."""
+        if self.store is None or not self.config.memory.extract:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # no event loop (e.g. sync unit test) → skip extraction
+        loop.create_task(self._extract_memories(transcript, reply))
+
+    async def _extract_memories(self, transcript: str, reply: str) -> None:
+        try:
+            existing = self.store.load_memories(limit=self.config.memory.max_facts)
+            existing_block = "\n".join(f"- {fact}" for fact in existing) or "(none yet)"
+            system = (
+                "You extract durable, long-term facts about the USER from one chat turn. "
+                "Return ONLY a JSON array of short fact strings worth remembering across "
+                "sessions (name, preferences, projects, relationships, stable traits). "
+                "Exclude transient/one-off details, questions, and anything already known. "
+                "If there is nothing new, return []."
+            )
+            user = (
+                f"Already known facts:\n{existing_block}\n\n"
+                f"User said: {transcript}\n"
+                f"Assistant replied: {reply}\n\n"
+                "New durable facts (JSON array of strings):"
+            )
+            response = await self.llm.chat(
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ]
+            )
+            facts = _parse_fact_list(getattr(response, "text", "") or "")
+            added = False
+            for fact in facts:
+                if self.store.upsert_memory(fact) is not None:
+                    added = True
+            if added:
+                self.store.prune_memories(max_count=self.config.memory.max_facts)
+        except Exception as exc:
+            logger.error(f"memory extraction failed: {exc}")
 
     def _try_local_intent(self, transcript: str) -> str | None:
         if not self.config.intent.local_router_enabled:
@@ -952,6 +1112,16 @@ def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessi
     else:
         tts = MacOSSayAdapter(config.tts)
 
+    store = None
+    if config.memory.enabled:
+        try:
+            # Shared singleton so the `remember` tool and the orchestrator read/write
+            # the same store instance.
+            from verse.persistence.db import default_store
+            store = default_store()
+        except Exception as exc:
+            logger.error(f"Failed to init ConversationStore: {exc}")
+
     return Orchestrator(
         stt=GroqWhisperAdapter(),
         llm=DeepSeekAdapter(config.llm),
@@ -962,4 +1132,5 @@ def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessi
         recorder=AudioRecorder(),
         play=play_audio,
         debug_logger=debug_logger,
+        store=store,
     )

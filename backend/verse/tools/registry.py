@@ -80,9 +80,12 @@ def _parse_arguments(raw_arguments: Any) -> dict[str, Any]:
 def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
     from verse.tools.builtin import (
         calendar,
+        contacts,
         memory,
+        messages,
         notes,
         reminders,
+        shortcuts,
         spotify,
         system,
         weather,
@@ -265,7 +268,7 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
         ),
         "add_reminder": Tool(
             name="add_reminder",
-            description="Add a new reminder to the default list in macOS Reminders app.",
+            description="Add a reminder to macOS Reminders, with an optional due date/time and list.",
             parameters={
                 "type": "object",
                 "properties": {
@@ -277,10 +280,119 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
                         "type": "string",
                         "description": "Optional details or body description for the reminder.",
                     },
+                    "due": {
+                        "type": "string",
+                        "description": "Optional due date/time, 'YYYY-MM-DD HH:MM' or 'YYYY-MM-DD'.",
+                    },
+                    "list_name": {
+                        "type": "string",
+                        "description": "Optional Reminders list name; defaults to the default list.",
+                    },
                 },
                 "required": ["title"],
             },
             handler=reminders.add_reminder,
+        ),
+        "complete_reminder": Tool(
+            name="complete_reminder",
+            description="Mark a reminder as completed by its title.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "The exact title of the reminder to complete.",
+                    }
+                },
+                "required": ["title"],
+            },
+            handler=reminders.complete_reminder,
+        ),
+        "create_event": Tool(
+            name="create_event",
+            description=(
+                "Create a macOS Calendar event. Date is 'today'/'tomorrow'/'YYYY-MM-DD', "
+                "times are 'HH:MM'. Defaults to a 1-hour event on the first calendar."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "Event title/summary."},
+                    "date": {
+                        "type": "string",
+                        "description": "'today', 'tomorrow', or 'YYYY-MM-DD'.",
+                    },
+                    "start_time": {"type": "string", "description": "Start time 'HH:MM'."},
+                    "end_time": {
+                        "type": "string",
+                        "description": "Optional end time 'HH:MM' (default +1 hour).",
+                    },
+                    "calendar_name": {
+                        "type": "string",
+                        "description": "Optional calendar name; defaults to the first calendar.",
+                    },
+                    "location": {"type": "string", "description": "Optional location."},
+                    "notes": {"type": "string", "description": "Optional notes/description."},
+                },
+                "required": ["title", "date", "start_time"],
+            },
+            handler=calendar.create_event,
+        ),
+        "send_message": Tool(
+            name="send_message",
+            description=(
+                "Send an iMessage to a contact name, phone number, or email. Always "
+                "confirm the recipient and message with the user before sending."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "recipient": {
+                        "type": "string",
+                        "description": "Contact name, phone number, or email.",
+                    },
+                    "text": {"type": "string", "description": "The message body to send."},
+                },
+                "required": ["recipient", "text"],
+            },
+            handler=messages.send_message,
+        ),
+        "find_contact": Tool(
+            name="find_contact",
+            description="Look up a contact's phone number or email by name.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The contact name to look up."}
+                },
+                "required": ["name"],
+            },
+            handler=contacts.find_contact,
+        ),
+        "run_shortcut": Tool(
+            name="run_shortcut",
+            description=(
+                "Run an Apple Shortcut by name (from the Shortcuts app), optionally "
+                "passing text input. Use list_shortcuts to see available names."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The shortcut name to run."},
+                    "text_input": {
+                        "type": "string",
+                        "description": "Optional text input to pass to the shortcut.",
+                    },
+                },
+                "required": ["name"],
+            },
+            handler=shortcuts.run_shortcut,
+        ),
+        "list_shortcuts": Tool(
+            name="list_shortcuts",
+            description="List the user's Apple Shortcuts so they can be run by name.",
+            parameters={"type": "object", "properties": {}},
+            handler=shortcuts.list_shortcuts,
         ),
     }
 

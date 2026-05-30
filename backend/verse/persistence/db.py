@@ -115,6 +115,65 @@ class ConversationStore:
 
         return [_row_to_message(row).as_dict() for row in reversed(rows)]
 
+    def upsert_memory(self, content: str, *, salience: float = 1.0) -> int | None:
+        """Store a durable fact about the user. De-duplicates on normalized text;
+        a repeated fact just bumps salience/updated_at instead of inserting again.
+        Returns the row id, or None if the content is blank."""
+        content = content.strip()
+        norm = _normalize_memory(content)
+        if not norm:
+            return None
+        now = _utc_now()
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                """
+                INSERT INTO memories (content, content_norm, salience, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(content_norm) DO UPDATE SET
+                    salience = MAX(memories.salience, excluded.salience) + 0.1,
+                    updated_at = excluded.updated_at
+                """,
+                (content, norm, salience, now),
+            )
+            row = self._connection.execute(
+                "SELECT id FROM memories WHERE content_norm = ?", (norm,)
+            ).fetchone()
+            return int(row["id"]) if row else int(cursor.lastrowid)
+
+    def load_memories(self, *, limit: int = 20) -> list[str]:
+        """Return the most salient/recent durable facts, highest priority first."""
+        if limit < 1:
+            return []
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT content FROM memories
+                ORDER BY salience DESC, updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [str(row["content"]) for row in rows]
+
+    def prune_memories(self, *, max_count: int) -> int:
+        """Keep only the top `max_count` facts (by salience then recency); delete
+        the rest. Returns how many were removed."""
+        if max_count < 0:
+            return 0
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                """
+                DELETE FROM memories
+                WHERE id NOT IN (
+                    SELECT id FROM memories
+                    ORDER BY salience DESC, updated_at DESC, id DESC
+                    LIMIT ?
+                )
+                """,
+                (max_count,),
+            )
+            return int(cursor.rowcount)
+
     def close(self) -> None:
         with self._lock:
             self._connection.close()
@@ -144,6 +203,14 @@ class ConversationStore:
                     ON messages (conv_id, id);
                 CREATE INDEX IF NOT EXISTS idx_messages_id
                     ON messages (id);
+
+                CREATE TABLE IF NOT EXISTS memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    content_norm TEXT NOT NULL UNIQUE,
+                    salience REAL NOT NULL DEFAULT 1.0,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -186,6 +253,12 @@ def _row_to_message(row: Row) -> Message:
         tool_calls=None if tool_calls is None else json.loads(tool_calls),
         created_at=str(row["created_at"]),
     )
+
+
+def _normalize_memory(content: str) -> str:
+    """Collapse whitespace + lowercase so trivially-different phrasings of the same
+    fact de-duplicate. Used only as the UNIQUE dedup key, not for display."""
+    return " ".join(content.lower().split())
 
 
 def _utc_now() -> str:
