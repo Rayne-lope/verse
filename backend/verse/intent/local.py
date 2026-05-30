@@ -67,6 +67,10 @@ class LocalIntentRouter:
         if match is not None:
             return match
 
+        match = self._route_brightness(text)
+        if match is not None:
+            return match
+
         return self._route_play_music(text)
 
     def _route_control(self, text: str) -> LocalIntentMatch | None:
@@ -259,6 +263,48 @@ class LocalIntentRouter:
                 confidence=0.96,
                 tool_name="set_dnd",
                 arguments={"enabled": False},
+            )
+            
+        return None
+
+    def _route_brightness(self, text: str) -> LocalIntentMatch | None:
+        # Check direct brightness assignment e.g. "setel brightness ke 50", "kecerahan 80"
+        match = re.search(r"\b(setel |atur |ganti )?(brightness|kecerahan)( layar)?( ke)? (?P<level>\d+)\b", text)
+        if match:
+            level = int(match.group("level"))
+            return LocalIntentMatch(
+                intent="system.set_brightness",
+                confidence=0.96,
+                tool_name="set_brightness",
+                arguments={"level": level},
+            )
+            
+        # Brightness Up
+        if re.search(r"\b(terangkan|besarkan|tambah|naikkan) (brightness|kecerahan|layar)\b", text) or text in ("brightness naik", "kecerahan naik", "layar lebih terang"):
+            # Set to 80% as a bright default
+            return LocalIntentMatch(
+                intent="system.set_brightness",
+                confidence=0.95,
+                tool_name="set_brightness",
+                arguments={"level": 80},
+            )
+            
+        # Brightness Down
+        if re.search(r"\b(redupkan|gelapkan|turunkan|kurangi) (brightness|kecerahan|layar)\b", text) or text in ("brightness turun", "kecerahan turun", "layar lebih redup", "layar redup"):
+            # Set to 20% as a dim default
+            return LocalIntentMatch(
+                intent="system.set_brightness",
+                confidence=0.95,
+                tool_name="set_brightness",
+                arguments={"level": 20},
+            )
+            
+        # Get brightness
+        if re.search(r"\b(berapa (brightness|kecerahan)( layar)?|cek (brightness|kecerahan)( layar)?|(brightness|kecerahan) berapa)\b", text):
+            return LocalIntentMatch(
+                intent="system.get_brightness",
+                confidence=0.96,
+                tool_name="get_brightness",
             )
             
         return None

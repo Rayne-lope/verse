@@ -67,6 +67,8 @@ class ToolsConfig:
             "set_muted",
             "set_dark_mode",
             "set_dnd",
+            "set_brightness",
+            "get_brightness",
         ]
     )
     spotify_client_id: str = ""

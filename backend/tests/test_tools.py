@@ -413,3 +413,59 @@ def test_system_controls_tools(monkeypatch):
     res = system.set_dnd(True)
     assert "Do Not Disturb is now enabled" in res
     mock_run_shortcut.assert_called_with("toggle dnd", text_input="On")
+
+
+def test_system_brightness_controls(monkeypatch):
+    from verse.tools.builtin import system
+    
+    mock_get = MagicMock(return_value=0)
+    mock_set = MagicMock(return_value=0)
+    
+    import ctypes
+    class MockDoubleRef:
+        def __init__(self):
+            self.value = 0.65
+            
+    mock_brightness = MockDoubleRef()
+    
+    def dummy_get(display, ref):
+        ref.contents.value = 0.65
+        return 0
+        
+    monkeypatch.setattr("ctypes.CDLL", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr("ctypes.c_float", lambda: mock_brightness)
+    monkeypatch.setattr("ctypes.byref", lambda x: x)
+    
+    # Mock the DisplayServices calls inside system.py
+    # We will mock CDLL to return dummy objects that have the target functions
+    class DummyDS:
+        def __init__(self):
+            # Define functions as local objects so we can set attributes like argtypes on them
+            def get_linear(display_id, ref):
+                ref.value = 0.65
+                return 0
+            
+            def set_linear(display_id, val):
+                return 0
+                
+            set_linear.argtypes = []
+            
+            self.DisplayServicesGetLinearBrightness = get_linear
+            self.DisplayServicesSetLinearBrightness = set_linear
+            
+    class DummyCG:
+        def CGMainDisplayID(self):
+            return 1
+            
+    def mock_cdll(path):
+        if "CoreGraphics" in path:
+            return DummyCG()
+        return DummyDS()
+        
+    monkeypatch.setattr("ctypes.CDLL", mock_cdll)
+    
+    # Test get_brightness
+    assert "65%" in system.get_brightness()
+    
+    # Test set_brightness
+    assert "brightness set to 75%" in system.set_brightness(75)

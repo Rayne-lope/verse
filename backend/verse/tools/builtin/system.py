@@ -132,3 +132,38 @@ def set_dnd(enabled: bool) -> str:
     run_shortcut(shortcut_name, text_input=input_val)
     status = "enabled" if enabled else "disabled"
     return f"System Do Not Disturb is now {status}."
+
+
+def get_brightness() -> str:
+    """Get the current macOS screen brightness level (0-100)."""
+    import ctypes
+    try:
+        cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+        ds = ctypes.CDLL('/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices')
+        display_id = cg.CGMainDisplayID()
+        brightness = ctypes.c_float()
+        ret = ds.DisplayServicesGetLinearBrightness(display_id, ctypes.byref(brightness))
+        if ret == 0:
+            level = int(round(brightness.value * 100))
+            return f"Screen brightness is {level}%."
+        return "Failed to read screen brightness from display services."
+    except Exception as exc:
+        return f"Failed to read screen brightness: {exc}"
+
+
+def set_brightness(level: int) -> str:
+    """Set the macOS screen brightness level (0-100)."""
+    import ctypes
+    try:
+        target_pct = max(0, min(100, int(level)))
+        target_val = float(target_pct) / 100.0
+        cg = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+        ds = ctypes.CDLL('/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices')
+        display_id = cg.CGMainDisplayID()
+        ds.DisplayServicesSetLinearBrightness.argtypes = [ctypes.c_uint32, ctypes.c_float]
+        ret = ds.DisplayServicesSetLinearBrightness(display_id, target_val)
+        if ret == 0:
+            return f"Screen brightness set to {target_pct}%."
+        return "Failed to set screen brightness in display services."
+    except Exception as exc:
+        return f"Failed to set screen brightness: {exc}"

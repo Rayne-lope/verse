@@ -112,3 +112,23 @@ def test_local_intent_routes_settings_controls():
     assert dnd_off is not None
     assert dnd_off.tool_name == "set_dnd"
     assert dnd_off.arguments == {"enabled": False}
+
+    # 5. Brightness
+    bright_set = router.route("setel brightness ke 70")
+    assert bright_set is not None
+    assert bright_set.tool_name == "set_brightness"
+    assert bright_set.arguments == {"level": 70}
+
+    bright_up = router.route("terangkan layar")
+    assert bright_up is not None
+    assert bright_up.tool_name == "set_brightness"
+    assert bright_up.arguments == {"level": 80}
+
+    bright_down = router.route("redupkan layar")
+    assert bright_down is not None
+    assert bright_down.tool_name == "set_brightness"
+    assert bright_down.arguments == {"level": 20}
+
+    bright_get = router.route("cek kecerahan")
+    assert bright_get is not None
+    assert bright_get.tool_name == "get_brightness"

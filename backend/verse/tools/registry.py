@@ -460,6 +460,27 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             },
             handler=system.set_dnd,
         ),
+        "set_brightness": Tool(
+            name="set_brightness",
+            description="Set the macOS screen brightness level.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "The brightness level (0-100).",
+                    }
+                },
+                "required": ["level"],
+            },
+            handler=system.set_brightness,
+        ),
+        "get_brightness": Tool(
+            name="get_brightness",
+            description="Get the current macOS screen brightness level (0-100).",
+            parameters={"type": "object", "properties": {}},
+            handler=system.get_brightness,
+        ),
     }
 
     names = enabled if enabled is not None else list(catalog)
