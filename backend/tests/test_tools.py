@@ -401,3 +401,15 @@ def test_system_controls_tools(monkeypatch):
     res = system.set_dnd(True)
     assert "Shortcuts app" in res
     assert "Toggle DND" in res
+
+    # 10. set_dnd (successful match path with lowercase name)
+    def mock_list_shortcuts():
+        return "Your shortcuts:\n- toggle dnd\n- Set Volume"
+    monkeypatch.setattr("verse.tools.builtin.shortcuts.list_shortcuts", mock_list_shortcuts)
+    
+    mock_run_shortcut = MagicMock(return_value="Ran shortcut")
+    monkeypatch.setattr("verse.tools.builtin.shortcuts.run_shortcut", mock_run_shortcut)
+    
+    res = system.set_dnd(True)
+    assert "Do Not Disturb is now enabled" in res
+    mock_run_shortcut.assert_called_with("toggle dnd", text_input="On")

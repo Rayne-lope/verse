@@ -93,15 +93,30 @@ def set_dnd(enabled: bool) -> str:
     
     # Check if a Focus toggle shortcut exists or fall back to 'Toggle DND'
     shortcuts_str = list_shortcuts()
+    
+    # Parse shortcut names from the list
+    names = []
+    for line in shortcuts_str.splitlines():
+        line = line.strip()
+        if line.startswith("- "):
+            names.append(line[2:].strip())
+        elif line and not line.startswith("Your shortcuts:"):
+            names.append(line)
+            
+    # Find case-insensitive match
     shortcut_name = None
-    if "DND" in shortcuts_str:
-        shortcut_name = "DND"
-    elif "Toggle DND" in shortcuts_str:
-        shortcut_name = "Toggle DND"
-    elif "Do Not Disturb" in shortcuts_str:
-        shortcut_name = "Do Not Disturb"
-    elif "Focus" in shortcuts_str:
-        shortcut_name = "Focus"
+    for name in names:
+        lower_name = name.lower()
+        if "toggle dnd" in lower_name:
+            shortcut_name = name
+            break
+            
+    if not shortcut_name:
+        for name in names:
+            lower_name = name.lower()
+            if "dnd" in lower_name or "do not disturb" in lower_name or "focus" in lower_name:
+                shortcut_name = name
+                break
         
     if not shortcut_name:
         # Graceful fallback: instruct the user on how to set it up
