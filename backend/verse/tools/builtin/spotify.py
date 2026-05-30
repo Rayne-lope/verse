@@ -200,8 +200,50 @@ def _find_user_playlist(query: str, user_id: str) -> tuple[str, str, str] | None
 
     # 2. Look for case-insensitive substring match
     for playlist_id, name in playlists:
-        if query_lower in name.lower():
+        if query_lower in name.lower() or name.lower() in query_lower:
             return f"spotify:playlist:{playlist_id}", name, "You"
 
+    # 3. Token-based matching (fuzzy fallback)
+    query_tokens = _normalize_tokens(query)
+    query_tokens.discard("moriant")
+    query_tokens.discard("morian")
+    query_tokens.discard(user_id.lower())
+
+    if not query_tokens:
+        return None
+
+    best_match = None
+    max_score = 0
+
+    for playlist_id, name in playlists:
+        playlist_tokens = _normalize_tokens(name)
+        score = 0
+        for qt in query_tokens:
+            for pt in playlist_tokens:
+                if qt == pt:
+                    score += 2  # Exact token match
+                elif (len(qt) >= 4 or len(pt) >= 4) and (qt.startswith(pt) or pt.startswith(qt)):
+                    score += 1  # Prefix match (e.g. lana and lanaa)
+
+        if score > max_score:
+            max_score = score
+            best_match = (f"spotify:playlist:{playlist_id}", name, "You")
+
+    # Only return the match if we have a significant overlap
+    if max_score >= 1:
+        return best_match
+
     return None
+
+
+def _normalize_tokens(text: str) -> set[str]:
+    text = text.lower()
+    tokens = re.findall(r'[a-z0-9]+', text)
+    stop_words = {
+        "my", "to", "the", "a", "of", "in", "for", "from", "dari", "yang",
+        "user", "username", "spotify", "playlist", "album", "artist",
+        "song", "track", "music", "musik", "lagu"
+    }
+    return {t for t in tokens if t not in stop_words}
+
 

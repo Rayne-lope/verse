@@ -234,6 +234,31 @@ def test_spotify_find_user_playlist_scrapes(monkeypatch):
     assert spotify._find_user_playlist("missing playlist", "dummy_user") is None
 
 
+def test_spotify_find_user_playlist_token_matching(monkeypatch):
+    mock_html = """
+    <div>
+      <a class="class1" href="/playlist/6r3aZ4RiTxmf6z9D9UQNHM">
+        <span>My Playlist #11</span>
+      </a>
+      <a class="class1" href="/playlist/0jGMJWyLZc3zvlBpndr8j4">
+        <span>My obsession to lanaa 🫀</span>
+      </a>
+    </div>
+    """
+
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.read.return_value = mock_html.encode("utf-8")
+
+    mock_urlopen = MagicMock(return_value=mock_response)
+    monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+
+    # Fuzzy match with moriant username inside query and different naming
+    res = spotify._find_user_playlist("My Obsession to Lana Del Rey Morian", "31ky3wdovalw2ddnc3zxh7dlhyj4")
+    assert res == ("spotify:playlist:0jGMJWyLZc3zvlBpndr8j4", "My obsession to lanaa 🫀", "You")
+
+
+
 def test_get_weather_returns_weather_info(monkeypatch):
     mock_geo_response = MagicMock()
     mock_geo_response.json = lambda: {
@@ -312,4 +337,5 @@ def test_reminders_calls_osascript(monkeypatch):
     assert "Buy milk" in read_res
 
     add_res = reminders.add_reminder("Buy bread", "Whole wheat")
-    assert "Successfully added reminder" in add_res
+    assert "Buy bread" in add_res
+    assert "default list" in add_res
