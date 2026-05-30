@@ -355,3 +355,49 @@ def test_open_app_resolves_aliases(monkeypatch):
     
     system.open_app("Safari")
     mock_run.assert_called_with(["open", "-a", "Safari"], check=True)
+
+
+def test_system_controls_tools(monkeypatch):
+    from verse.tools.builtin import system
+    
+    mock_run = MagicMock()
+    mock_run.return_value.stdout = "50\n"
+    monkeypatch.setattr("subprocess.run", mock_run)
+    
+    # 1. get_volume
+    assert "50%" in system.get_volume()
+    mock_run.assert_called_with(["osascript", "-e", "output volume of (get volume settings)"], capture_output=True, text=True, check=True, timeout=20.0)
+    
+    # 2. set_volume
+    assert "75%" in system.set_volume(75)
+    mock_run.assert_called_with(["osascript", "-e", "set volume output volume 75"], capture_output=True, text=True, check=True, timeout=20.0)
+    
+    # 3. is_muted (true)
+    mock_run.return_value.stdout = "true\n"
+    assert "muted" in system.is_muted()
+    
+    # 4. is_muted (false)
+    mock_run.return_value.stdout = "false\n"
+    assert "not muted" in system.is_muted()
+    
+    # 5. set_muted
+    assert "muted" in system.set_muted(True)
+    mock_run.assert_called_with(["osascript", "-e", "set volume with output muted"], capture_output=True, text=True, check=True, timeout=20.0)
+    
+    # 6. set_muted (unmute)
+    assert "unmuted" in system.set_muted(False)
+    mock_run.assert_called_with(["osascript", "-e", "set volume without output muted"], capture_output=True, text=True, check=True, timeout=20.0)
+    
+    # 7. is_dark_mode
+    mock_run.return_value.stdout = "true\n"
+    assert "enabled" in system.is_dark_mode()
+    
+    # 8. set_dark_mode
+    assert "Dark Mode" in system.set_dark_mode(True)
+    mock_run.assert_called_with(["osascript", "-e", 'tell application "System Events" to tell appearance preferences to set dark mode to true'], capture_output=True, text=True, check=True, timeout=20.0)
+    
+    # 9. set_dnd (fallback path since list_shortcuts returns no matching names in test)
+    mock_run.return_value.stdout = ""
+    res = system.set_dnd(True)
+    assert "Shortcuts app" in res
+    assert "Toggle DND" in res

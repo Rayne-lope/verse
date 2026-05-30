@@ -62,6 +62,11 @@ class ToolsConfig:
             "run_shortcut",
             "list_shortcuts",
             "remember",
+            "set_volume",
+            "get_volume",
+            "set_muted",
+            "set_dark_mode",
+            "set_dnd",
         ]
     )
     spotify_client_id: str = ""

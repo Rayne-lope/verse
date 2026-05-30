@@ -394,6 +394,72 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             parameters={"type": "object", "properties": {}},
             handler=shortcuts.list_shortcuts,
         ),
+        "set_volume": Tool(
+            name="set_volume",
+            description="Set the macOS output volume level.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "The volume level (0-100).",
+                    }
+                },
+                "required": ["level"],
+            },
+            handler=system.set_volume,
+        ),
+        "get_volume": Tool(
+            name="get_volume",
+            description="Get the current macOS output volume level (0-100).",
+            parameters={"type": "object", "properties": {}},
+            handler=system.get_volume,
+        ),
+        "set_muted": Tool(
+            name="set_muted",
+            description="Mute or unmute the system volume.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "muted": {
+                        "type": "boolean",
+                        "description": "True to mute, False to unmute.",
+                    }
+                },
+                "required": ["muted"],
+            },
+            handler=system.set_muted,
+        ),
+        "set_dark_mode": Tool(
+            name="set_dark_mode",
+            description="Enable or disable macOS Dark Mode appearance.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "True for Dark Mode, False for Light Mode.",
+                    }
+                },
+                "required": ["enabled"],
+            },
+            handler=system.set_dark_mode,
+        ),
+        "set_dnd": Tool(
+            name="set_dnd",
+            description="Enable or disable macOS Do Not Disturb (Focus Mode).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "True for Do Not Disturb enabled, False for disabled.",
+                    }
+                },
+                "required": ["enabled"],
+            },
+            handler=system.set_dnd,
+        ),
     }
 
     names = enabled if enabled is not None else list(catalog)
