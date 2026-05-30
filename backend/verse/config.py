@@ -97,6 +97,11 @@ class VoiceConfig:
 
 
 @dataclass(frozen=True)
+class DebugConfig:
+    session_logging: bool = True
+
+
+@dataclass(frozen=True)
 class AppConfig:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
@@ -106,6 +111,7 @@ class AppConfig:
     intent: IntentConfig = field(default_factory=IntentConfig)
     vad: VADConfig = field(default_factory=VADConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
+    debug: DebugConfig = field(default_factory=DebugConfig)
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
@@ -140,6 +146,8 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     vad = raw_config.get("vad", {})
     voice_raw = raw_config.get("voice", {})
     gl_raw = voice_raw.get("gemini_live", {})
+
+    debug = raw_config.get("debug", {})
 
     return AppConfig(
         hotkey=HotkeyConfig(
@@ -206,6 +214,11 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
                 model=str(gl_raw.get("model", GeminiLiveConfig.model)),
                 voice_name=str(gl_raw.get("voice_name", GeminiLiveConfig.voice_name)),
                 language_code=str(gl_raw.get("language_code", GeminiLiveConfig.language_code)),
+            ),
+        ),
+        debug=DebugConfig(
+            session_logging=_as_bool(
+                debug.get("session_logging"), DebugConfig.session_logging
             ),
         ),
     )

@@ -50,7 +50,7 @@ def build_client_message_handler(engine):
     return handle_client_message
 
 
-def _build_engine(config: AppConfig, force_classic: bool = False):
+def _build_engine(config: AppConfig, force_classic: bool = False, debug_logger = None):
     """Return (engine, is_gemini). Gemini engine is duck-type compatible
     with Orchestrator so the wiring below is identical for both."""
     if not force_classic and config.voice.engine == "gemini_live":
@@ -62,7 +62,7 @@ def _build_engine(config: AppConfig, force_classic: bool = False):
         state_machine = StateMachine()
         return GeminiLiveEngine(config, registry, state_machine), True
 
-    return build_orchestrator(config), False
+    return build_orchestrator(config, debug_logger=debug_logger), False
 
 
 def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
@@ -86,11 +86,11 @@ def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
     )
 
 
-async def _startup(config: AppConfig, ws_server: WebSocketServer):
+async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger = None):
     """Start WS server, select engine, wire callbacks, with Gemini fallback."""
     await ws_server.start()
 
-    engine, is_gemini = _build_engine(config)
+    engine, is_gemini = _build_engine(config, debug_logger=debug_logger)
     ws_server.attach_state_machine(engine.state_machine)
     _wire_callbacks(engine, ws_server)
     ws_server.on_client_message = build_client_message_handler(engine)
@@ -108,7 +108,7 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer):
                     recoverable=True,
                 )
             )
-            engine, _ = _build_engine(config, force_classic=True)
+            engine, _ = _build_engine(config, force_classic=True, debug_logger=debug_logger)
             ws_server.attach_state_machine(engine.state_machine)
             _wire_callbacks(engine, ws_server)
             ws_server.on_client_message = build_client_message_handler(engine)
@@ -119,13 +119,20 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer):
 def main() -> None:
     config = load_config()
 
+    debug_logger = None
+    if getattr(config.debug, "session_logging", False):
+        from verse.persistence.debug_logger import DebugSessionLogger
+        debug_logger = DebugSessionLogger()
+        logger.info(f"Initialized debug session logger: {debug_logger.session_id}")
+        print(f"Debug session log directory: {debug_logger.session_dir}")
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     ws_server = WebSocketServer()
 
     try:
-        engine = loop.run_until_complete(_startup(config, ws_server))
+        engine = loop.run_until_complete(_startup(config, ws_server, debug_logger=debug_logger))
     except OSError as exc:
         print(f"Error: WebSocket server could not start on localhost:8765: {exc}")
         loop.close()

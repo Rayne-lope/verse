@@ -13,6 +13,7 @@ from verse.state import StateMachine
 from verse.stt.base import STTAdapter
 from verse.tools.registry import ToolRegistry
 from verse.tts.base import TTSAdapter
+from verse.persistence.debug_logger import DebugSessionLogger
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are Verse, a concise voice assistant for macOS. "
@@ -50,6 +51,7 @@ class Orchestrator:
         pre_vad_audio_hook: Callable[[Any], Any] | None = None,
         post_recording_audio_hook: Callable[[Any], Any] | None = None,
         clean_for_stt: Callable[[bytes], bytes] | None = None,
+        debug_logger: DebugSessionLogger | None = None,
     ) -> None:
         self.stt = stt
         self.llm = llm
@@ -91,7 +93,18 @@ class Orchestrator:
             self.vad_state_machine = VADEndpointingStateMachine(self.config.vad)
 
         self.on_vad_state: Callable[[str, float], None] | None = None
-        self.on_pipeline_event: Callable[[str, str, dict[str, Any]], None] | None = None
+        self._user_on_pipeline_event = None
+        self._wrapped_on_pipeline_event = None
+
+        self.debug_logger = debug_logger
+        if self.debug_logger is None and getattr(self.config.debug, "session_logging", False):
+            try:
+                from verse.persistence.debug_logger import DebugSessionLogger
+                self.debug_logger = DebugSessionLogger()
+            except Exception as exc:
+                logger.error(f"Failed to auto-initialize DebugSessionLogger: {exc}")
+
+        self._update_wrapped_on_pipeline_event()
         self._vad_task: asyncio.Task | None = None
 
         self._auto_listening = False
@@ -106,9 +119,70 @@ class Orchestrator:
         self._barge_in_requested = False
         self._barge_in_handled = False
 
+        self._current_turn_id: int | None = None
+        self._current_vad_timeline: list[dict[str, Any]] = []
+        self._current_pipeline_events: list[dict[str, Any]] = []
+        self._current_latency_metrics: dict[str, Any] = {}
+        self._input_audio_bytes: bytes | None = None
+        self._output_audio_bytes: bytes | None = None
+        self._llm_messages: list[dict[str, Any]] = []
+        self._llm_response: dict[str, Any] = {}
+
     @property
     def conversation_mode_active(self) -> bool:
         return self._conversation_mode_active
+
+    @property
+    def on_pipeline_event(self) -> Callable[[str, str, dict[str, Any]], None] | None:
+        if self.debug_logger is not None:
+            return self._wrapped_on_pipeline_event
+        return self._user_on_pipeline_event
+
+    @on_pipeline_event.setter
+    def on_pipeline_event(self, value: Callable[[str, str, dict[str, Any]], None] | None) -> None:
+        self._user_on_pipeline_event = value
+        self._update_wrapped_on_pipeline_event()
+
+    def _update_wrapped_on_pipeline_event(self) -> None:
+        def wrapped(stage: str, event: str, metadata: dict[str, Any]) -> None:
+            import time
+            if self._current_turn_id is not None:
+                self._current_pipeline_events.append({
+                    "timestamp": time.time(),
+                    "stage": stage,
+                    "event": event,
+                    "metadata": metadata
+                })
+            if self._user_on_pipeline_event is not None:
+                try:
+                    self._user_on_pipeline_event(stage, event, metadata)
+                except Exception:
+                    logger.exception("Error in user on_pipeline_event callback")
+        self._wrapped_on_pipeline_event = wrapped
+
+    def _write_current_turn_data(self) -> None:
+        if self.debug_logger is None or self._current_turn_id is None:
+            return
+        
+        turn_id = self._current_turn_id
+        
+        if self._input_audio_bytes is not None:
+            self.debug_logger.log_input_audio(turn_id, self._input_audio_bytes)
+            
+        if self._output_audio_bytes is not None:
+            self.debug_logger.log_output_audio(turn_id, self._output_audio_bytes)
+            
+        if self._current_vad_timeline:
+            self.debug_logger.log_vad_timeline(turn_id, self._current_vad_timeline)
+            
+        if self._current_pipeline_events:
+            self.debug_logger.log_pipeline_events(turn_id, self._current_pipeline_events)
+            
+        if self._llm_messages or self._llm_response:
+            self.debug_logger.log_llm_transaction(turn_id, self._llm_messages, self._llm_response)
+            
+        if self._current_latency_metrics:
+            self.debug_logger.log_metrics(turn_id, self._current_latency_metrics)
 
     def start_listening(self, is_auto: bool = False) -> bool:
         if self.recorder is None:
@@ -120,6 +194,17 @@ class Orchestrator:
             # Explicit PTT press → one-shot turn, no auto-continue.
             self._auto_listening = False
             self._conversation_mode_active = False
+
+        if self.debug_logger is not None:
+            self._current_turn_id = self.debug_logger.new_turn()
+            self._current_vad_timeline = []
+            self._current_pipeline_events = []
+            self._current_latency_metrics = {}
+            self._input_audio_bytes = None
+            self._output_audio_bytes = None
+            self._llm_messages = []
+            self._llm_response = {}
+
         self.state_machine.hotkey_pressed()
         self.recorder.start_recording(on_audio_level=self._handle_audio_level)
         return True
@@ -141,6 +226,8 @@ class Orchestrator:
                 self.start_auto_listening()
             return ""
             
+        self._input_audio_bytes = audio
+
         self.state_machine.hotkey_released()
         return await self.handle_audio(audio, history=history)
 
@@ -156,15 +243,26 @@ class Orchestrator:
                 pass
             start_stt = time.time()
             transcript = await self._transcribe(audio)
-            print(f"[Debug] STT took: {time.time() - start_stt:.2f}s")
+            stt_duration = time.time() - start_stt
+            print(f"[Debug] STT took: {stt_duration:.2f}s")
 
             start_llm = time.time()
             reply = await self._respond(transcript, history or [])
-            print(f"[Debug] LLM took: {time.time() - start_llm:.2f}s")
+            llm_duration = time.time() - start_llm
+            print(f"[Debug] LLM took: {llm_duration:.2f}s")
 
             start_tts = time.time()
             await self._speak(reply)
-            print(f"[Debug] TTS took: {time.time() - start_tts:.2f}s")
+            tts_duration = time.time() - start_tts
+            print(f"[Debug] TTS took: {tts_duration:.2f}s")
+
+            if self.debug_logger is not None and self._current_turn_id is not None:
+                self._current_latency_metrics.update({
+                    "stt_ms": int(stt_duration * 1000),
+                    "llm_ms": int(llm_duration * 1000),
+                    "tts_ms": int(tts_duration * 1000),
+                })
+                self._write_current_turn_data()
 
             return reply
         except Exception as exc:  # surface failure to UI/state machine
@@ -175,6 +273,15 @@ class Orchestrator:
                     {"code": "pipeline_failure", "message": str(exc)}
                 )
             self.state_machine.fail(str(exc))
+            if self.debug_logger is not None and self._current_turn_id is not None:
+                import traceback
+                self.debug_logger.log_error(
+                    self._current_turn_id,
+                    error_type=exc.__class__.__name__,
+                    message=str(exc),
+                    traceback=traceback.format_exc(),
+                )
+                self._write_current_turn_data()
             raise
 
     async def _transcribe(self, audio: bytes) -> str:
@@ -192,6 +299,8 @@ class Orchestrator:
     async def _respond(self, transcript: str, history: list[dict[str, Any]]) -> str:
         local_reply = self._try_local_intent(transcript)
         if local_reply is not None:
+            self._llm_messages = [{"role": "user", "content": transcript}]
+            self._llm_response = {"text": local_reply}
             return local_reply
 
         messages: list[dict[str, Any]] = [
@@ -203,10 +312,15 @@ class Orchestrator:
         tools = definitions or None
 
         reply = ""
+        total_tool_ms = 0.0
         for _ in range(self.max_tool_iterations):
             response = await self.llm.chat(messages, tools=tools)
             if not response.tool_calls:
                 reply = response.text.strip()
+                self._llm_response = {
+                    "text": reply,
+                    "tool_calls": []
+                }
                 break
 
             messages.append(
@@ -217,7 +331,12 @@ class Orchestrator:
                 }
             )
             for tool_call in response.tool_calls:
+                import time
+                start_tool = time.time()
                 result = self._run_tool(tool_call)
+                tool_duration = time.time() - start_tool
+                total_tool_ms += tool_duration
+
                 messages.append(
                     {
                         "role": "tool",
@@ -229,6 +348,14 @@ class Orchestrator:
             # Exhausted iterations; do a final toolless call for a clean answer.
             response = await self.llm.chat(messages)
             reply = response.text.strip()
+            self._llm_response = {
+                "text": reply,
+                "tool_calls": []
+            }
+
+        self._llm_messages = messages
+        if self.debug_logger is not None and self._current_turn_id is not None:
+            self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
 
         if self.on_assistant_text:
             self.on_assistant_text(reply)
@@ -369,8 +496,10 @@ class Orchestrator:
             if text:
                 clean_text = self._clean_markdown_for_tts(text)
                 audio = await self.tts.synthesize(clean_text)
-                if audio and self._play is not None:
-                    await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
+                if audio:
+                    self._output_audio_bytes = audio
+                    if self._play is not None:
+                        await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
             interrupted = stop_event.is_set()
         finally:
             if self._playback_stop_event is stop_event:
@@ -574,6 +703,14 @@ class Orchestrator:
                     max_probability = max(max_probability, prob)
                     state, utterance_chunks = self.vad_state_machine.process_frame(frame, prob)
 
+                    if self.debug_logger is not None and self._current_turn_id is not None:
+                        self._current_vad_timeline.append({
+                            "timestamp": time.time(),
+                            "probability": float(prob),
+                            "state": state.value,
+                            "rms": float(rms_level)
+                        })
+
                     if state != prev_state:
                         if state == VADState.SPEECH_ACTIVE and prev_state == VADState.WAITING_FOR_SPEECH:
                             print("Heard you, listening...")
@@ -762,6 +899,16 @@ class Orchestrator:
             )
         self.state_machine.fail(message)
 
+        if self.debug_logger is not None and self._current_turn_id is not None:
+            import traceback
+            self.debug_logger.log_error(
+                self._current_turn_id,
+                error_type=f"auto_recoverable:{code}",
+                message=message,
+                traceback=traceback.format_exc(),
+            )
+            self._write_current_turn_data()
+
     def deactivate_conversation(self) -> None:
         self._conversation_mode_active = False
         self._auto_listening = False
@@ -785,7 +932,7 @@ def _is_audio_too_short(audio: bytes) -> bool:
         return True
 
 
-def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:
+def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessionLogger | None = None) -> Orchestrator:
     from verse.audio.capture import AudioRecorder
     from verse.audio.playback import play_audio
     from verse.llm.deepseek import DeepSeekAdapter
@@ -814,4 +961,5 @@ def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:
         config=config,
         recorder=AudioRecorder(),
         play=play_audio,
+        debug_logger=debug_logger,
     )
