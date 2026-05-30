@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
 import os
+import re
 import subprocess
 import urllib.parse
 import urllib.request
 from typing import Any
 
+from verse.config import load_config
 from verse.persistence.keychain import get_api_key
 
 TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -34,6 +37,21 @@ def play_music(query: str | None = None, type: str = "track") -> str:
         return "Resumed Spotify playback."
 
     query = query.strip()
+
+    if type == "playlist":
+        try:
+            config = load_config()
+            configured_user = config.tools.spotify_username
+            if configured_user:
+                clean_user = _get_clean_spotify_username(configured_user)
+                if clean_user:
+                    found_user_playlist = _find_user_playlist(query, clean_user)
+                    if found_user_playlist is not None:
+                        uri, name, artist = found_user_playlist
+                        run_applescript(f'tell application "Spotify" to play track "{uri}"')
+                        return f"Playing playlist '{name}' by {artist} on Spotify."
+        except Exception:
+            pass
     client_id, client_secret = _spotify_credentials()
     if client_id and client_secret:
         token = _get_access_token(client_id, client_secret)
@@ -94,7 +112,7 @@ def _get_access_token(client_id: str, client_secret: str) -> str:
 
 
 def _search_spotify(query: str, search_type: str, token: str) -> tuple[str, str, str] | None:
-    params = urllib.parse.urlencode({"q": query, "type": search_type, "limit": 1})
+    params = urllib.parse.urlencode({"q": query, "type": search_type, "limit": 10})
     request = urllib.request.Request(
         f"{SEARCH_URL}?{params}",
         headers={"Authorization": f"Bearer {token}"},
@@ -133,4 +151,57 @@ def _parse_first_item(payload: dict[str, Any], search_type: str) -> tuple[str, s
 
 def _parse_first_track(payload: dict[str, Any]) -> tuple[str, str, str] | None:
     return _parse_first_item(payload, "track")
+
+
+def _get_clean_spotify_username(configured: str) -> str:
+    configured = configured.strip()
+    if not configured:
+        return ""
+    if "spotify.com/user/" in configured:
+        parts = configured.split("spotify.com/user/")
+        if len(parts) > 1:
+            return parts[1].split("?")[0].split("/")[0].strip()
+    return configured
+
+
+def _fetch_user_playlists(user_id: str) -> list[tuple[str, str]]:
+    url = f"https://open.spotify.com/user/{user_id}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html_content = response.read().decode("utf-8")
+    except Exception:
+        return []
+
+    matches = re.findall(
+        r'href="/playlist/([a-zA-Z0-9]+)"[^>]*>.*?<span[^>]*>(.*?)</span>',
+        html_content,
+        re.DOTALL
+    )
+
+    playlists = []
+    for playlist_id, name in matches:
+        unescaped_name = html.unescape(name).strip()
+        playlists.append((playlist_id, unescaped_name))
+    return playlists
+
+
+def _find_user_playlist(query: str, user_id: str) -> tuple[str, str, str] | None:
+    playlists = _fetch_user_playlists(user_id)
+    if not playlists:
+        return None
+
+    query_lower = query.lower()
+
+    # 1. Look for case-insensitive exact match
+    for playlist_id, name in playlists:
+        if name.lower() == query_lower:
+            return f"spotify:playlist:{playlist_id}", name, "You"
+
+    # 2. Look for case-insensitive substring match
+    for playlist_id, name in playlists:
+        if query_lower in name.lower():
+            return f"spotify:playlist:{playlist_id}", name, "You"
+
+    return None
 

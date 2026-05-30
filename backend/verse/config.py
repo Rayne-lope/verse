@@ -55,9 +55,11 @@ class ToolsConfig:
             "read_calendar",
             "read_reminders",
             "add_reminder",
+            "remember",
         ]
     )
     spotify_client_id: str = ""
+    spotify_username: str = ""
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,14 @@ class DebugConfig:
 
 
 @dataclass(frozen=True)
+class MemoryConfig:
+    enabled: bool = True       # master switch for all memory (history + long-term)
+    extract: bool = True       # run async long-term fact extraction after each turn
+    max_facts: int = 50        # cap on stored durable facts (pruned beyond this)
+    inject_facts: int = 18     # how many facts to inject into the system prompt
+
+
+@dataclass(frozen=True)
 class AppConfig:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
@@ -112,6 +122,7 @@ class AppConfig:
     vad: VADConfig = field(default_factory=VADConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
@@ -148,6 +159,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     gl_raw = voice_raw.get("gemini_live", {})
 
     debug = raw_config.get("debug", {})
+    memory = raw_config.get("memory", {})
 
     return AppConfig(
         hotkey=HotkeyConfig(
@@ -176,6 +188,9 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             enabled=list(tools.get("enabled", ToolsConfig().enabled)),
             spotify_client_id=str(
                 tools.get("spotify_client_id", ToolsConfig.spotify_client_id)
+            ),
+            spotify_username=str(
+                tools.get("spotify_username", ToolsConfig.spotify_username)
             ),
         ),
         intent=IntentConfig(
@@ -220,5 +235,11 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             session_logging=_as_bool(
                 debug.get("session_logging"), DebugConfig.session_logging
             ),
+        ),
+        memory=MemoryConfig(
+            enabled=_as_bool(memory.get("enabled"), MemoryConfig.enabled),
+            extract=_as_bool(memory.get("extract"), MemoryConfig.extract),
+            max_facts=int(memory.get("max_facts", MemoryConfig.max_facts)),
+            inject_facts=int(memory.get("inject_facts", MemoryConfig.inject_facts)),
         ),
     )

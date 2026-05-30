@@ -197,6 +197,42 @@ def test_spotify_parse_first_artist():
     )
 
 
+def test_spotify_get_clean_username():
+    assert spotify._get_clean_spotify_username("31ky3wdovalw2ddnc3zxh7dlhyj4") == "31ky3wdovalw2ddnc3zxh7dlhyj4"
+    assert spotify._get_clean_spotify_username("https://open.spotify.com/user/31ky3wdovalw2ddnc3zxh7dlhyj4?si=9d1f") == "31ky3wdovalw2ddnc3zxh7dlhyj4"
+    assert spotify._get_clean_spotify_username("   ") == ""
+
+
+def test_spotify_find_user_playlist_scrapes(monkeypatch):
+    mock_html = """
+    <div>
+      <a class="class1" href="/playlist/6r3aZ4RiTxmf6z9D9UQNHM">
+        <span>My Playlist #11</span>
+      </a>
+      <a class="class1" href="/playlist/0jGMJWyLZc3zvlBpndr8j4">
+        <span>My obsession to lanaa 🫀</span>
+      </a>
+    </div>
+    """
+
+    mock_response = MagicMock()
+    mock_response.__enter__.return_value = mock_response
+    mock_response.read.return_value = mock_html.encode("utf-8")
+
+    mock_urlopen = MagicMock(return_value=mock_response)
+    monkeypatch.setattr("urllib.request.urlopen", mock_urlopen)
+
+    # 1. Exact match
+    res = spotify._find_user_playlist("My Playlist #11", "dummy_user")
+    assert res == ("spotify:playlist:6r3aZ4RiTxmf6z9D9UQNHM", "My Playlist #11", "You")
+
+    # 2. Substring match case-insensitive
+    res = spotify._find_user_playlist("lanaa", "dummy_user")
+    assert res == ("spotify:playlist:0jGMJWyLZc3zvlBpndr8j4", "My obsession to lanaa 🫀", "You")
+
+    # 3. No match
+    assert spotify._find_user_playlist("missing playlist", "dummy_user") is None
+
 
 def test_get_weather_returns_weather_info(monkeypatch):
     mock_geo_response = MagicMock()
