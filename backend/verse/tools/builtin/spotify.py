@@ -28,7 +28,7 @@ def open_uri(uri: str) -> None:
     subprocess.run(["open", uri], check=True)
 
 
-def play_music(query: str | None = None) -> str:
+def play_music(query: str | None = None, type: str = "track") -> str:
     if not (query and query.strip()):
         run_applescript('tell application "Spotify" to play')
         return "Resumed Spotify playback."
@@ -37,12 +37,18 @@ def play_music(query: str | None = None) -> str:
     client_id, client_secret = _spotify_credentials()
     if client_id and client_secret:
         token = _get_access_token(client_id, client_secret)
-        found = _search_track(query, token)
+        found = _search_spotify(query, type, token)
         if found is not None:
             uri, name, artist = found
             run_applescript(f'tell application "Spotify" to play track "{uri}"')
+            if type == "playlist":
+                return f"Playing playlist '{name}' by {artist} on Spotify."
+            elif type == "album":
+                return f"Playing album '{name}' by {artist} on Spotify."
+            elif type == "artist":
+                return f"Playing artist '{name}' on Spotify."
             return f"Playing '{name}' by {artist} on Spotify."
-        return f"No Spotify track found for '{query}'."
+        return f"No Spotify {type} found for '{query}'."
 
     # No API credentials: fall back to opening the search view + resume.
     open_uri(f"spotify:search:{urllib.parse.quote(query)}")
@@ -56,6 +62,7 @@ def play_music(query: str | None = None) -> str:
 def pause_music() -> str:
     run_applescript('tell application "Spotify" to pause')
     return "Paused Spotify playback."
+
 
 
 def _spotify_credentials() -> tuple[str | None, str | None]:
@@ -86,24 +93,44 @@ def _get_access_token(client_id: str, client_secret: str) -> str:
     return str(payload["access_token"])
 
 
-def _search_track(query: str, token: str) -> tuple[str, str, str] | None:
-    params = urllib.parse.urlencode({"q": query, "type": "track", "limit": 1})
+def _search_spotify(query: str, search_type: str, token: str) -> tuple[str, str, str] | None:
+    params = urllib.parse.urlencode({"q": query, "type": search_type, "limit": 1})
     request = urllib.request.Request(
         f"{SEARCH_URL}?{params}",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(request, timeout=10) as response:
         payload = json.loads(response.read().decode("utf-8"))
-    return _parse_first_track(payload)
+    return _parse_first_item(payload, search_type)
+
+
+def _parse_first_item(payload: dict[str, Any], search_type: str) -> tuple[str, str, str] | None:
+    key = f"{search_type}s"
+    items = payload.get(key, {}).get("items", [])
+    items = [item for item in items if item is not None]
+    if not items:
+        return None
+    item = items[0]
+    uri = item["uri"]
+    name = item.get("name", "")
+
+    if search_type == "track":
+        artists = item.get("artists", [])
+        artist = artists[0]["name"] if artists else "Unknown"
+    elif search_type == "playlist":
+        owner = item.get("owner", {})
+        artist = owner.get("display_name") or owner.get("id") or "Spotify"
+    elif search_type == "album":
+        artists = item.get("artists", [])
+        artist = artists[0]["name"] if artists else "Unknown"
+    elif search_type == "artist":
+        artist = "Artist"
+    else:
+        artist = "Unknown"
+
+    return uri, name, artist
 
 
 def _parse_first_track(payload: dict[str, Any]) -> tuple[str, str, str] | None:
-    items = payload.get("tracks", {}).get("items", [])
-    if not items:
-        return None
-    track = items[0]
-    uri = track["uri"]
-    name = track.get("name", "")
-    artists = track.get("artists", [])
-    artist = artists[0]["name"] if artists else "Unknown"
-    return uri, name, artist
+    return _parse_first_item(payload, "track")
+

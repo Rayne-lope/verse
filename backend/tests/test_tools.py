@@ -141,6 +141,63 @@ def test_spotify_parse_first_track_empty():
     assert spotify._parse_first_track({"tracks": {"items": []}}) is None
 
 
+def test_spotify_parse_first_playlist():
+    payload = {
+        "playlists": {
+            "items": [
+                {
+                    "uri": "spotify:playlist:play123",
+                    "name": "Lofi Chill",
+                    "owner": {"display_name": "Lofi Girl"},
+                }
+            ]
+        }
+    }
+    assert spotify._parse_first_item(payload, "playlist") == (
+        "spotify:playlist:play123",
+        "Lofi Chill",
+        "Lofi Girl",
+    )
+
+
+def test_spotify_parse_first_album():
+    payload = {
+        "albums": {
+            "items": [
+                {
+                    "uri": "spotify:album:alb123",
+                    "name": "Random Access Memories",
+                    "artists": [{"name": "Daft Punk"}],
+                }
+            ]
+        }
+    }
+    assert spotify._parse_first_item(payload, "album") == (
+        "spotify:album:alb123",
+        "Random Access Memories",
+        "Daft Punk",
+    )
+
+
+def test_spotify_parse_first_artist():
+    payload = {
+        "artists": {
+            "items": [
+                {
+                    "uri": "spotify:artist:art123",
+                    "name": "Queen",
+                }
+            ]
+        }
+    }
+    assert spotify._parse_first_item(payload, "artist") == (
+        "spotify:artist:art123",
+        "Queen",
+        "Artist",
+    )
+
+
+
 def test_get_weather_returns_weather_info(monkeypatch):
     mock_geo_response = MagicMock()
     mock_geo_response.json = lambda: {

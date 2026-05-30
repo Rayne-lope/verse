@@ -106,15 +106,29 @@ class LocalIntentRouter:
 
     def _route_play_music(self, text: str) -> LocalIntentMatch | None:
         match = re.fullmatch(
-            r"(play|putar|mainkan) (?P<kind>music|musik|song|lagu|track|spotify)(?P<tail> .+)?",
+            r"(play|putar|mainkan) (?P<kind>music|musik|song|lagu|track|spotify|playlist|album|artist)(?P<tail> .+)?",
             text,
         )
         if match is None:
             return None
 
+        kind = match.group("kind")
         tail = (match.group("tail") or "").strip()
         query = _strip_music_prefix(tail)
-        arguments = {"query": query} if query else {}
+        
+        arguments = {}
+        if query:
+            arguments["query"] = query
+
+        type_mapping = {
+            "playlist": "playlist",
+            "album": "album",
+            "artist": "artist",
+        }
+        if kind in type_mapping:
+            arguments["type"] = type_mapping[kind]
+        elif kind in ("song", "lagu", "track"):
+            arguments["type"] = "track"
 
         return LocalIntentMatch(
             intent="music.play",
@@ -132,6 +146,6 @@ def _normalize(text: str) -> str:
 
 
 def _strip_music_prefix(text: str) -> str:
-    text = re.sub(r"^(music|musik|song|lagu|track)\b", "", text).strip()
+    text = re.sub(r"^(music|musik|song|lagu|track|playlist|album|artist)\b", "", text).strip()
     text = re.sub(r"^(yang|for|about|tentang)\b", "", text).strip()
     return text

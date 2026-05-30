@@ -80,6 +80,7 @@ def _parse_arguments(raw_arguments: Any) -> dict[str, Any]:
 def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
     from verse.tools.builtin import (
         calendar,
+        memory,
         notes,
         reminders,
         spotify,
@@ -93,14 +94,19 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             name="play_music",
             description=(
                 "Play music on Spotify. Optionally search for a song, artist, "
-                "or genre first; otherwise resume the current track."
+                "playlist, or album first; otherwise resume the current track."
             ),
             parameters={
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "What to play, e.g. 'jazz', 'Daft Punk'.",
+                        "description": "What to play, e.g. 'jazz', 'Daft Punk', 'Lofi Chill'.",
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["track", "playlist", "album", "artist"],
+                        "description": "The type of Spotify content to play (default: 'track').",
                     }
                 },
             },
@@ -111,6 +117,25 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             description="Pause Spotify playback.",
             parameters={"type": "object", "properties": {}},
             handler=spotify.pause_music,
+        ),
+        "remember": Tool(
+            name="remember",
+            description=(
+                "Store a durable fact about the user for future conversations, e.g. "
+                "when they say 'remember that ...' or share a lasting preference, "
+                "name, or detail about themselves."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The fact to remember, as a short statement.",
+                    }
+                },
+                "required": ["content"],
+            },
+            handler=memory.remember,
         ),
         "open_app": Tool(
             name="open_app",
