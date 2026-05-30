@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from verse.audio.vad import SileroVADManager
+from verse.audio.vad import SileroVADManager, VAD_WINDOW_SAMPLES
 
 
 def test_silero_vad_manager_init_fallback(monkeypatch):
@@ -31,9 +31,9 @@ def test_silero_vad_manager_predict_invalid_inputs():
         manager = SileroVADManager()
         # Make session appear loaded
         manager.session = MagicMock()
-        
-        # Wrong length
-        assert manager.predict(np.zeros(256)) == 0.0
+
+        # Wrong length (this ONNX build only accepts VAD_WINDOW_SAMPLES)
+        assert manager.predict(np.zeros(512)) == 0.0
 
 
 def test_silero_vad_manager_predict_success():
@@ -50,8 +50,8 @@ def test_silero_vad_manager_predict_success():
             manager = SileroVADManager()
             assert manager.is_available is True
             
-            frame = np.zeros(512, dtype=np.float32)
+            frame = np.zeros(VAD_WINDOW_SAMPLES, dtype=np.float32)
             prob = manager.predict(frame)
-            
+
             assert prob == pytest.approx(0.85)
             assert np.allclose(manager._state, 0.1)

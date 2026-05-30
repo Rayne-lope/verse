@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "Verse",
-        "width": 112,
-        "height": 112,
+        "width": 180,
+        "height": 180,
         "resizable": false,
         "maximizable": false,
         "minimizable": false,

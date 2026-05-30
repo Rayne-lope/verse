@@ -1,27 +1,27 @@
+import { useRef } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
-import { useAudioLevel } from "../hooks/useAudioLevel";
+import { useAudioReactiveOrb } from "../hooks/useAudioReactiveOrb";
+import { Eyes } from "./Eyes";
 import "./Bubble.css";
 
 export function Bubble() {
-  const { lastState } = useWebSocket();
-  const audioLevel = useAudioLevel();
-
+  const { lastState, audioLevel } = useWebSocket();
   const state = lastState ?? "idle";
 
-  // Calculate dynamic scale transformation based on audio level
-  const showReactivity = state === "listening" || state === "speaking";
-  const scale = showReactivity ? 1 + audioLevel * 0.45 : 1.0;
+  const orbRef = useRef<HTMLDivElement>(null);
+  const active = state === "listening" || state === "speaking";
+  useAudioReactiveOrb(orbRef, audioLevel, active);
 
   return (
-    <div className="bubble-container" data-tauri-drag-region>
-      <div
-        className="bubble-element"
-        data-state={state}
-        style={{
-          transform: `scale(${scale})`,
-        }}
-        aria-label={`Verse state: ${state}`}
-      />
+    <div className="bubble-stage" data-tauri-drag-region>
+      <div ref={orbRef} className="orb" data-state={state} aria-label={`Verse state: ${state}`}>
+        <div className="orb__glow" />
+        <div className="orb__body" />
+        <div className="orb__iridescence" />
+        <div className="orb__highlight" />
+        <div className="orb__rim" />
+        <Eyes />
+      </div>
     </div>
   );
 }

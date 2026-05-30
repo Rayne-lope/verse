@@ -1,6 +1,14 @@
-.bubble-container {
-  width: 112px;
-  height: 112px;
+/* Registered so the hue can interpolate — gradients/glow follow it,
+   making state-to-state color changes morph instead of snap. */
+@property --orb-hue {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 250;
+}
+
+.bubble-stage {
+  width: 100%;
+  height: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -8,105 +16,219 @@
   background: transparent;
 }
 
-.bubble-element {
-  width: 72px;
-  height: 72px;
+.orb {
+  /* Per-state themeable tokens (consumed in #4) */
+  --orb-hue: 250;
+  --orb-tint: oklch(70% 0.13 var(--orb-hue) / 0.34);
+  --orb-tint-deep: oklch(55% 0.15 var(--orb-hue) / 0.4);
+  --orb-glow: oklch(72% 0.16 var(--orb-hue) / 0.5);
+  --orb-shimmer-speed: 18s;
+  --orb-breathe-speed: 6s;
+  --audio: 0;
+
+  width: 120px;
+  height: 120px;
   border-radius: 50%;
-  border: 1px solid oklch(100% 0 0 / 0.7);
-  box-shadow: 
-    0 16px 36px oklch(0% 0 0 / 0.25),
-    inset 0 0 20px oklch(100% 0 0 / 0.2);
-  transition: transform 0.08s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.4s ease, border-color 0.4s ease;
   position: relative;
+  transform: translateZ(0);
+  scale: 1;
+  transition: --orb-hue 450ms ease, scale 160ms ease;
+  animation: orb-breathe var(--orb-breathe-speed) ease-in-out infinite;
 }
 
-/* State: Idle */
-.bubble-element[data-state="idle"] {
-  background:
-    radial-gradient(circle at 42% 34%, oklch(98% 0.01 200 / 0.95), transparent 30%),
-    linear-gradient(145deg, oklch(75% 0.1 190 / 0.9), oklch(58% 0.13 250 / 0.9));
-  animation: pulse-slow 3s infinite ease-in-out;
+/* Per-state theming & motion (#4) — color follows --orb-hue */
+.orb[data-state="idle"] { --orb-hue: 250; }
+.orb[data-state="listening"] { --orb-hue: 200; }
+.orb[data-state="thinking"] {
+  --orb-hue: 290;
+  --orb-shimmer-speed: 7s;
 }
+.orb[data-state="speaking"] { --orb-hue: 330; }
 
-/* State: Listening */
-.bubble-element[data-state="listening"] {
-  border-color: oklch(85% 0.12 200 / 0.9);
-  background:
-    radial-gradient(circle at 42% 34%, oklch(98% 0.01 190 / 0.98), transparent 30%),
-    linear-gradient(145deg, oklch(78% 0.14 185 / 0.9), oklch(55% 0.16 220 / 0.9));
+/* Audio-reactive scale (#5) — drives off smoothed --audio, gated to active states */
+.orb[data-state="listening"],
+.orb[data-state="speaking"] {
+  animation: none;
+  scale: calc(1 + var(--audio, 0) * 0.14);
+  transition: scale 80ms linear, --orb-hue 450ms ease;
+}
+.orb[data-state="listening"] .orb__glow,
+.orb[data-state="speaking"] .orb__glow {
   box-shadow:
-    0 0 20px oklch(75% 0.15 190 / 0.4),
-    inset 0 0 16px oklch(100% 0 0 / 0.3);
+    0 10px 30px oklch(20% 0.04 var(--orb-hue) / 0.35),
+    0 0 calc(28px + var(--audio, 0) * 34px) var(--orb-glow);
+}
+.orb[data-state="speaking"] .eye {
+  scale: 1 calc(1 + var(--audio, 0) * 0.25);
+}
+.orb[data-state="error"] {
+  --orb-hue: 25;
+  animation: orb-shake 0.5s ease-in-out infinite;
 }
 
-/* State: Thinking */
-.bubble-element[data-state="thinking"] {
-  border-color: oklch(80% 0.15 280 / 0.9);
-  background:
-    radial-gradient(circle at 42% 34%, oklch(98% 0.01 280 / 0.98), transparent 30%),
-    linear-gradient(145deg, oklch(72% 0.18 290 / 0.9), oklch(52% 0.2 320 / 0.9));
-  animation: pulse-thinking 1.2s infinite ease-in-out;
+/* Shared full-cover layer helper */
+.orb > div {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Soft floating glow behind the orb */
+.orb__glow {
+  z-index: 0;
   box-shadow:
-    0 0 24px oklch(65% 0.18 290 / 0.5),
-    inset 0 0 16px oklch(100% 0 0 / 0.3);
+    0 10px 30px oklch(20% 0.04 var(--orb-hue) / 0.35),
+    0 0 28px var(--orb-glow);
 }
 
-/* State: Speaking */
-.bubble-element[data-state="speaking"] {
-  border-color: oklch(80% 0.18 320 / 0.9);
+/* Glass body — refracts the desktop behind the transparent window */
+.orb__body {
+  z-index: 1;
   background:
-    radial-gradient(circle at 42% 34%, oklch(98% 0.01 320 / 0.98), transparent 30%),
-    linear-gradient(145deg, oklch(70% 0.22 330 / 0.9), oklch(50% 0.22 360 / 0.9));
+    radial-gradient(circle at 50% 58%, oklch(98% 0.01 var(--orb-hue) / 0.18), transparent 62%),
+    linear-gradient(150deg, var(--orb-tint), var(--orb-tint-deep));
+  border: 1px solid oklch(100% 0 0 / 0.45);
+  backdrop-filter: blur(8px) saturate(1.5);
+  -webkit-backdrop-filter: blur(8px) saturate(1.5);
   box-shadow:
-    0 0 20px oklch(65% 0.2 330 / 0.4),
-    inset 0 0 16px oklch(100% 0 0 / 0.3);
+    inset 0 -10px 22px oklch(35% 0.08 var(--orb-hue) / 0.45),
+    inset 0 8px 18px oklch(100% 0 0 / 0.28);
 }
 
-/* State: Error */
-.bubble-element[data-state="error"] {
-  border-color: oklch(70% 0.15 25 / 0.9);
+/* Iridescent soap-bubble shimmer */
+.orb__iridescence {
+  z-index: 2;
+  opacity: 0.4;
+  mix-blend-mode: screen;
+  background: conic-gradient(
+    from 0deg,
+    oklch(75% 0.2 20),
+    oklch(85% 0.18 90),
+    oklch(82% 0.18 150),
+    oklch(80% 0.16 210),
+    oklch(72% 0.2 290),
+    oklch(75% 0.22 340),
+    oklch(75% 0.2 20)
+  );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 18%, black 58%, transparent 92%);
+  mask-image: radial-gradient(circle at 50% 50%, transparent 18%, black 58%, transparent 92%);
+  will-change: transform;
+  animation: orb-shimmer var(--orb-shimmer-speed) linear infinite;
+}
+
+/* Specular glass highlights */
+.orb__highlight {
+  z-index: 3;
   background:
-    radial-gradient(circle at 42% 34%, oklch(98% 0.01 25 / 0.98), transparent 30%),
-    linear-gradient(145deg, oklch(65% 0.22 25 / 0.9), oklch(48% 0.2 38 / 0.9));
-  animation: shake 0.5s ease-in-out infinite alternate;
+    radial-gradient(ellipse 38% 26% at 34% 26%, oklch(100% 0 0 / 0.85), transparent 70%),
+    radial-gradient(circle 4px at 68% 30%, oklch(100% 0 0 / 0.9), transparent 70%);
+}
+
+/* Bright rim light at the edge */
+.orb__rim {
+  z-index: 4;
   box-shadow:
-    0 0 20px oklch(58% 0.2 25 / 0.5),
-    inset 0 0 16px oklch(100% 0 0 / 0.3);
+    inset 0 0 0 1px oklch(100% 0 0 / 0.35),
+    inset 0 2px 6px oklch(100% 0 0 / 0.4);
 }
 
-/* Animations */
-@keyframes pulse-slow {
-  0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 16px 36px oklch(0% 0 0 / 0.25), inset 0 0 20px oklch(100% 0 0 / 0.2);
-  }
-  50% {
-    transform: scale(1.02);
-    box-shadow: 0 18px 40px oklch(0% 0 0 / 0.28), inset 0 0 24px oklch(100% 0 0 / 0.25);
-  }
+/* Eyes (#3) */
+.eyes {
+  z-index: 5;
+  border-radius: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  transform: translateY(-6px);
+  animation: eye-drift 7s ease-in-out infinite;
 }
 
-@keyframes pulse-thinking {
-  0%, 100% {
-    opacity: 0.9;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
+.eye {
+  width: 14px;
+  height: 22px;
+  border-radius: 7px;
+  background: oklch(100% 0 0 / 0.96);
+  box-shadow:
+    0 0 6px oklch(100% 0 0 / 0.6),
+    inset 0 1px 2px oklch(80% 0.04 var(--orb-hue) / 0.5);
+  transition: transform 90ms ease-in;
+  transform-origin: center;
 }
 
-@keyframes shake {
-  0% { transform: translate(1px, 1px) rotate(0deg); }
-  10% { transform: translate(-1px, -2px) rotate(-1deg); }
-  20% { transform: translate(-3px, 0px) rotate(1deg); }
-  30% { transform: translate(0px, 2px) rotate(0deg); }
-  40% { transform: translate(1px, -1px) rotate(1deg); }
-  50% { transform: translate(-1px, 2px) rotate(-1deg); }
-  60% { transform: translate(-3px, 1px) rotate(0deg); }
-  70% { transform: translate(2px, 1px) rotate(-1deg); }
-  80% { transform: translate(-1px, -1px) rotate(1deg); }
-  90% { transform: translate(2px, 2px) rotate(0deg); }
-  100% { transform: translate(1px, -2px) rotate(-1deg); }
+.eyes[data-blinking] .eye {
+  transform: scaleY(0.08);
+}
+
+/* Per-state eye expressions (#4) — shape only; transform stays owned by blink */
+.orb[data-state="listening"] .eye {
+  height: 25px;
+  width: 13px;
+}
+.orb[data-state="speaking"] .eye {
+  height: 16px;
+  border-radius: 7px 7px 9px 9px;
+}
+.orb[data-state="thinking"] .eyes {
+  animation: eye-think 2.2s ease-in-out infinite;
+}
+.orb[data-state="error"] .eyes {
+  animation: none;
+  transform: translateY(3px);
+}
+.orb[data-state="error"] .eye {
+  height: 9px;
+  border-radius: 5px;
+}
+
+@keyframes eye-think {
+  0%, 100% { transform: translate(-3px, -6px); }
+  50% { transform: translate(3px, -7px); }
+}
+
+@keyframes orb-shake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(-2px, 0) rotate(-2deg); }
+  75% { transform: translate(2px, 0) rotate(2deg); }
+}
+
+@keyframes eye-drift {
+  0%, 100% { transform: translate(0, -6px); }
+  30% { transform: translate(-2px, -5px); }
+  65% { transform: translate(2px, -7px); }
+}
+
+@keyframes orb-breathe {
+  0%, 100% { transform: translateZ(0) scale(1); }
+  50% { transform: translateZ(0) scale(1.025); }
+}
+
+@keyframes orb-shimmer {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .orb__iridescence,
+  .eyes,
+  .orb[data-state="error"],
+  .orb[data-state="thinking"] .eyes {
+    animation: none;
+  }
+
+  /* Don't pump the orb/glow/eyes off the audio signal when motion is reduced. */
+  .orb[data-state="listening"],
+  .orb[data-state="speaking"] {
+    scale: 1;
+  }
+  .orb[data-state="listening"] .orb__glow,
+  .orb[data-state="speaking"] .orb__glow {
+    box-shadow:
+      0 10px 30px oklch(20% 0.04 var(--orb-hue) / 0.35),
+      0 0 28px var(--orb-glow);
+  }
+  .orb[data-state="speaking"] .eye {
+    scale: 1;
+  }
 }

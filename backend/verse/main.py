@@ -140,6 +140,12 @@ def main() -> None:
             print(f"Error: {exc}")
 
     def on_pressed() -> None:
+        from verse.state import State
+
+        if engine.state_machine.state is State.SPEAKING and hasattr(engine, "request_barge_in"):
+            print("Interrupting...")
+            engine.request_barge_in()
+            return
         print("Listening...")
         engine.start_listening()
 
@@ -148,14 +154,21 @@ def main() -> None:
 
     def on_conversation_toggle() -> None:
         from verse.state import State
-        if engine.state_machine.state is not State.IDLE:
-            print("Stopping conversation mode...")
-            if hasattr(engine, "deactivate_conversation"):
-                engine.deactivate_conversation()
-        else:
-            print("Starting conversation mode...")
-            if hasattr(engine, "start_auto_listening"):
-                engine.start_auto_listening()
+
+        async def _toggle() -> None:
+            if engine.state_machine.state is not State.IDLE:
+                print("Stopping conversation mode...")
+                if hasattr(engine, "deactivate_conversation"):
+                    engine.deactivate_conversation()
+            else:
+                print("Starting conversation mode...")
+                if hasattr(engine, "start_auto_listening"):
+                    engine.start_auto_listening()
+
+        # Runs on the pynput listener thread; hop to the event loop so
+        # get_running_loop() inside start_auto_listening resolves correctly
+        # and the VAD turn-detection task actually gets scheduled.
+        asyncio.run_coroutine_threadsafe(_toggle(), loop)
 
     listener = HotkeyListener(
         config.hotkey,

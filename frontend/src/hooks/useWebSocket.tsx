@@ -48,6 +48,22 @@ export function WebSocketProvider({
       return;
     }
 
+    if (import.meta.env.DEV) {
+      switch (message.type) {
+        case "state_change":
+          console.debug("[Verse WS] state", message.state);
+          break;
+        case "pipeline_event":
+          console.debug("[Verse WS] pipeline", message.stage, message.event, message);
+          break;
+        case "vad_update":
+          console.debug("[Verse WS] vad", message.state, message.probability);
+          break;
+        default:
+          break;
+      }
+    }
+
     switch (message.type) {
       case "state_change":
         setLastState(message.state);
@@ -63,6 +79,9 @@ export function WebSocketProvider({
         break;
       case "error":
         setLastState("error");
+        break;
+      case "pipeline_event":
+      case "vad_update":
         break;
       default:
         break;

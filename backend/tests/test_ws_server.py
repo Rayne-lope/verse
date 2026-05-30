@@ -1,5 +1,9 @@
 import asyncio
+import socket
 
+import pytest
+
+from verse.main import build_client_message_handler
 from verse.state import State, StateMachine, StateTrigger
 from verse.ws import protocol
 from verse.ws.server import WebSocketServer
@@ -14,6 +18,23 @@ class FakeClient:
         if self._fail:
             raise RuntimeError("client gone")
         self.sent.append(payload)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+class MessageClient(FakeClient):
+    def __init__(self, messages: list[str]) -> None:
+        super().__init__()
+        self._messages = list(messages)
+
+    async def __anext__(self):
+        if not self._messages:
+            raise StopAsyncIteration
+        return self._messages.pop(0)
 
 
 def test_state_change_message_serializes_state():
@@ -72,6 +93,97 @@ def test_attach_state_machine_enqueues_state_change():
     message = server._queue.get_nowait()
     assert message == {"type": "state_change", "state": "listening"}
     assert machine.state is State.LISTENING
+
+
+def test_new_client_receives_current_state():
+    server = WebSocketServer()
+    machine = StateMachine(initial_state=State.THINKING)
+    server.attach_state_machine(machine)
+    client = FakeClient()
+
+    asyncio.run(server._handle_connection(client))
+
+    assert client.sent[0] == '{"type": "state_change", "state": "thinking"}'
+
+
+def test_manual_trigger_message_handler_calls_orchestrator():
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.started = 0
+            self.stopped = 0
+
+        def start_listening(self) -> bool:
+            self.started += 1
+            return True
+
+        async def stop_and_respond(self) -> str:
+            self.stopped += 1
+            return "ok"
+
+    async def run() -> FakeOrchestrator:
+        orchestrator = FakeOrchestrator()
+        handler = build_client_message_handler(orchestrator)
+        await handler(server, client, {"type": "manual_trigger", "action": "start_listening"})
+        await handler(server, client, {"type": "manual_trigger", "action": "stop_listening"})
+        return orchestrator
+
+    server = WebSocketServer()
+    client = FakeClient()
+    orchestrator = asyncio.run(run())
+
+    assert orchestrator.started == 1
+    assert orchestrator.stopped == 1
+
+
+def test_interrupt_message_handler_calls_barge_in():
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.interrupted = 0
+
+        def request_barge_in(self) -> bool:
+            self.interrupted += 1
+            return True
+
+    async def run() -> FakeOrchestrator:
+        orchestrator = FakeOrchestrator()
+        handler = build_client_message_handler(orchestrator)
+        await handler(server, client, {"type": "interrupt"})
+        return orchestrator
+
+    server = WebSocketServer()
+    client = FakeClient()
+    orchestrator = asyncio.run(run())
+
+    assert orchestrator.interrupted == 1
+
+
+def test_server_dispatches_client_messages_to_handler():
+    seen = []
+
+    async def handler(_server, _client, message):
+        seen.append(message)
+
+    server = WebSocketServer(on_client_message=handler)
+    client = MessageClient(['{"type": "manual_trigger", "action": "start_listening"}'])
+
+    asyncio.run(server._handle_connection(client))
+
+    assert seen == [{"type": "manual_trigger", "action": "start_listening"}]
+
+
+def test_server_start_raises_when_port_is_occupied():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    port = sock.getsockname()[1]
+
+    try:
+        server = WebSocketServer()
+        with pytest.raises(OSError):
+            asyncio.run(server.start("127.0.0.1", port))
+    finally:
+        sock.close()
 
 
 def test_all_state_transitions_are_broadcasted():

@@ -61,3 +61,42 @@ start_threshold = 0.65
     assert config.vad.enabled is False
     assert config.vad.start_threshold == 0.65
     assert config.vad.end_threshold == 0.35
+    assert config.vad.rms_fallback_enabled is True
+    assert config.vad.rms_start_level == 0.03
+    assert config.vad.rms_end_level == 0.02
+
+
+def test_load_config_parses_vad_rms_fallback_values(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[vad]
+rms_fallback_enabled = "false"
+rms_start_level = 0.07
+rms_end_level = 0.04
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.vad.rms_fallback_enabled is False
+    assert config.vad.rms_start_level == 0.07
+    assert config.vad.rms_end_level == 0.04
+
+
+def test_load_config_parses_local_intent_router_values(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[intent]
+local_router_enabled = "false"
+local_router_confidence_threshold = 0.9
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.intent.local_router_enabled is False
+    assert config.intent.local_router_confidence_threshold == 0.9

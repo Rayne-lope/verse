@@ -5,12 +5,14 @@ import json
 from typing import Any, Awaitable, Callable
 
 import websockets
-from websockets.asyncio.server import ServerConnection, serve
+from websockets.asyncio.server import Server, ServerConnection, serve
 
 from verse.state import StateChangedEvent, StateMachine
 from verse.ws.protocol import state_change_message
 
-ClientMessageHandler = Callable[["WebSocketServer", ServerConnection, dict[str, Any]], Awaitable[None] | None]
+ClientMessageHandler = Callable[
+    ["WebSocketServer", ServerConnection, dict[str, Any]], Awaitable[None] | None
+]
 
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 8765
@@ -30,10 +32,21 @@ class WebSocketServer:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._unsubscribe_state: Callable[[], None] | None = None
+        self._state_machine: StateMachine | None = None
+        self._server: Server | None = None
+        self._consumer: asyncio.Task | None = None
 
     @property
     def client_count(self) -> int:
         return len(self._clients)
+
+    @property
+    def on_client_message(self) -> ClientMessageHandler | None:
+        return self._on_client_message
+
+    @on_client_message.setter
+    def on_client_message(self, handler: ClientMessageHandler | None) -> None:
+        self._on_client_message = handler
 
     def register(self, client: ServerConnection) -> None:
         self._clients.add(client)
@@ -66,6 +79,7 @@ class WebSocketServer:
                 msg = event.metadata.get("message", "Unknown error")
                 self.enqueue(error_message(msg))
 
+        self._state_machine = machine
         self._unsubscribe_state = machine.subscribe(on_state_changed)
         return self._unsubscribe_state
 
@@ -85,6 +99,12 @@ class WebSocketServer:
     async def _handle_connection(self, client: ServerConnection) -> None:
         self.register(client)
         try:
+            if self._state_machine is not None:
+                await client.send(
+                    json.dumps(
+                        {"type": "state_change", "state": str(self._state_machine.state)}
+                    )
+                )
             async for raw in client:
                 if self._on_client_message is None:
                     continue
@@ -100,11 +120,39 @@ class WebSocketServer:
         finally:
             self.unregister(client)
 
-    async def serve(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+    async def start(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
         self._loop = asyncio.get_running_loop()
         self._consumer = asyncio.create_task(self._drain_queue())
         try:
-            async with serve(self._handle_connection, host, port):
-                await asyncio.Future()
-        finally:
+            self._server = await serve(self._handle_connection, host, port)
+        except Exception:
+            if self._consumer is not None:
+                self._consumer.cancel()
+                try:
+                    await self._consumer
+                except asyncio.CancelledError:
+                    pass
+            self._consumer = None
+            self._loop = None
+            raise
+
+    async def close(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+            self._server = None
+        if self._consumer is not None:
             self._consumer.cancel()
+            try:
+                await self._consumer
+            except asyncio.CancelledError:
+                pass
+            self._consumer = None
+        self._loop = None
+
+    async def serve(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:
+        await self.start(host, port)
+        try:
+            await asyncio.Future()
+        finally:
+            await self.close()

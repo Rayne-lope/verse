@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 
 SILERO_VAD_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
 
+# This silero_vad.onnx build expects 256-sample (16ms @ 16kHz) windows. Feeding
+# it 512 samples runs without error but returns ~0 probability for everything,
+# which silently blinds the VAD. Verified empirically: 256 -> 0.99 on speech /
+# 0.003 on silence; 512 -> 0.07 on speech.
+VAD_WINDOW_SAMPLES = 256
+VAD_FRAME_MS = 16  # 256 * 1000 // 16000
+
 
 class SileroVADManager:
     def __init__(self, model_path: str | Path = "~/.verse/models/silero_vad.onnx") -> None:
@@ -45,19 +52,19 @@ class SileroVADManager:
         self._state = np.zeros((2, 1, 128), dtype=np.float32)
 
     def predict(self, frame: np.ndarray) -> float:
-        """Predict speech probability for a 1D float32 NumPy array of 512 samples.
-        
+        """Predict speech probability for a 1D float32 NumPy array of VAD_WINDOW_SAMPLES.
+
         Args:
-            frame: A 1D array of exactly 512 samples (at 16000Hz).
-            
+            frame: A 1D array of exactly VAD_WINDOW_SAMPLES (256) samples (at 16000Hz).
+
         Returns:
             Speech probability as a float from 0.0 to 1.0. Returns 0.0 if VAD is unavailable.
         """
-        if not self.is_available or len(frame) != 512:
+        if not self.is_available or len(frame) != VAD_WINDOW_SAMPLES:
             return 0.0
 
         try:
-            # Ensure float32 and shape (1, 512)
+            # Ensure float32 and shape (1, VAD_WINDOW_SAMPLES)
             input_data = np.expand_dims(frame.astype(np.float32), axis=0)
             sr_data = np.array(16000, dtype=np.int64)
 
@@ -123,8 +130,8 @@ class VADEndpointingStateMachine:
         self.config = config or VADConfig()
         self._state = VADState.WAITING_FOR_SPEECH
         
-        # Frame duration is exactly 32ms (512 samples at 16000Hz)
-        self._frame_ms = 32
+        # Frame duration is exactly 16ms (256 samples at 16000Hz)
+        self._frame_ms = VAD_FRAME_MS
         pre_roll_frames = max(1, self.config.pre_roll_ms // self._frame_ms)
         self._pre_roll: deque[np.ndarray] = deque(maxlen=pre_roll_frames)
         
@@ -153,7 +160,7 @@ class VADEndpointingStateMachine:
     def process_frame(
         self, frame: np.ndarray, probability: float
     ) -> tuple[VADState, list[np.ndarray] | None]:
-        """Process a single frame of 512 samples with its speech probability.
+        """Process a single frame of VAD_WINDOW_SAMPLES with its speech probability.
         
         Returns:
             A tuple of (current_state, final_utterance_chunks).

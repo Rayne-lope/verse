@@ -61,11 +61,20 @@ class ToolsConfig:
 
 
 @dataclass(frozen=True)
+class IntentConfig:
+    local_router_enabled: bool = True
+    local_router_confidence_threshold: float = 0.75
+
+
+@dataclass(frozen=True)
 class VADConfig:
     enabled: bool = True
     model_path: str = "~/.verse/models/silero_vad.onnx"
     start_threshold: float = 0.55
     end_threshold: float = 0.35
+    rms_fallback_enabled: bool = True
+    rms_start_level: float = 0.03
+    rms_end_level: float = 0.02
     speech_start_ms: int = 160
     min_utterance_ms: int = 500
     end_silence_ms: int = 1400
@@ -76,7 +85,7 @@ class VADConfig:
 
 @dataclass(frozen=True)
 class GeminiLiveConfig:
-    model: str = "gemini-2.0-flash-live-001"
+    model: str = "gemini-2.5-flash-preview-native-audio-dialog"
     voice_name: str = "Puck"
     language_code: str = "en-US"
 
@@ -94,6 +103,7 @@ class AppConfig:
     llm: LLMConfig = field(default_factory=LLMConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    intent: IntentConfig = field(default_factory=IntentConfig)
     vad: VADConfig = field(default_factory=VADConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
 
@@ -109,12 +119,24 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     return config_from_mapping(raw_config)
 
 
+def _as_bool(value: Any, default: bool) -> bool:
+    """Parse a TOML value into a bool, tolerating string forms like "false"."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
+    if value is None:
+        return default
+    return bool(value)
+
+
 def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     hotkey = raw_config.get("hotkey", {})
     stt = raw_config.get("stt", {})
     llm = raw_config.get("llm", {})
     tts = raw_config.get("tts", {})
     tools = raw_config.get("tools", {})
+    intent = raw_config.get("intent", {})
     vad = raw_config.get("vad", {})
     voice_raw = raw_config.get("voice", {})
     gl_raw = voice_raw.get("gemini_live", {})
@@ -124,7 +146,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             trigger=str(hotkey.get("trigger", HotkeyConfig.trigger)),
             conversation_trigger=str(hotkey.get("conversation_trigger", HotkeyConfig.conversation_trigger)),
             mode=str(hotkey.get("mode", HotkeyConfig.mode)),
-            conversation_mode=bool(hotkey.get("conversation_mode", HotkeyConfig.conversation_mode)),
+            conversation_mode=_as_bool(hotkey.get("conversation_mode"), HotkeyConfig.conversation_mode),
         ),
         stt=STTConfig(
             provider=str(stt.get("provider", STTConfig.provider)),
@@ -148,11 +170,29 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
                 tools.get("spotify_client_id", ToolsConfig.spotify_client_id)
             ),
         ),
+        intent=IntentConfig(
+            local_router_enabled=_as_bool(
+                intent.get("local_router_enabled"),
+                IntentConfig.local_router_enabled,
+            ),
+            local_router_confidence_threshold=float(
+                intent.get(
+                    "local_router_confidence_threshold",
+                    IntentConfig.local_router_confidence_threshold,
+                )
+            ),
+        ),
         vad=VADConfig(
-            enabled=bool(vad.get("enabled", VADConfig.enabled)),
+            enabled=_as_bool(vad.get("enabled"), VADConfig.enabled),
             model_path=str(vad.get("model_path", VADConfig.model_path)),
             start_threshold=float(vad.get("start_threshold", VADConfig.start_threshold)),
             end_threshold=float(vad.get("end_threshold", VADConfig.end_threshold)),
+            rms_fallback_enabled=_as_bool(
+                vad.get("rms_fallback_enabled"),
+                VADConfig.rms_fallback_enabled,
+            ),
+            rms_start_level=float(vad.get("rms_start_level", VADConfig.rms_start_level)),
+            rms_end_level=float(vad.get("rms_end_level", VADConfig.rms_end_level)),
             speech_start_ms=int(vad.get("speech_start_ms", VADConfig.speech_start_ms)),
             min_utterance_ms=int(vad.get("min_utterance_ms", VADConfig.min_utterance_ms)),
             end_silence_ms=int(vad.get("end_silence_ms", VADConfig.end_silence_ms)),

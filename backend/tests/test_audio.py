@@ -1,3 +1,5 @@
+import threading
+
 import numpy as np
 import pytest
 
@@ -113,6 +115,38 @@ def test_play_audio_calls_on_audio_level(monkeypatch):
     play_audio(audio_bytes, blocking=True, on_audio_level=levels.append)
 
     assert len(levels) >= 1
+
+
+def test_play_audio_stop_event_stops_output_stream(monkeypatch):
+    observed = {}
+
+    class FakeOutputStream:
+        def __init__(self, *, callback, finished_callback, **_kwargs):
+            self.callback = callback
+            self.finished_callback = finished_callback
+
+        def __enter__(self):
+            outdata = np.ones((512, 1), dtype="float32")
+            try:
+                self.callback(outdata, 512, None, None)
+            except BaseException:
+                pass
+            observed["outdata"] = outdata.copy()
+            self.finished_callback()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    monkeypatch.setattr("verse.audio.playback.sd.OutputStream", FakeOutputStream)
+
+    stop_event = threading.Event()
+    stop_event.set()
+    audio_bytes = samples_to_wav_bytes(np.ones((1024, 1), dtype="float32"), 16_000)
+
+    play_audio(audio_bytes, blocking=True, stop_event=stop_event)
+
+    assert np.all(observed["outdata"] == 0)
 
 
 @pytest.mark.anyio

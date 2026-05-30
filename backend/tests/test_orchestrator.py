@@ -1,5 +1,7 @@
 import asyncio
+import threading
 
+from verse.config import AppConfig, IntentConfig, ToolsConfig
 from verse.llm.base import LLMResponse
 from verse.orchestrator import Orchestrator
 from verse.state import State, StateMachine
@@ -115,6 +117,53 @@ def test_handle_audio_executes_tool_then_replies():
     # second LLM request includes the tool result message
     second_messages = llm.requests[1][0]
     assert any(m.get("role") == "tool" for m in second_messages)
+
+
+def test_handle_audio_uses_local_intent_before_llm():
+    registry = _registry_with("get_time", lambda: "It is noon.")
+    machine = StateMachine(initial_state=State.THINKING)
+    stt = FakeSTT("jam berapa sekarang")
+    llm = FakeLLM([])
+    tts = FakeTTS()
+    executed = []
+    orch, played = _orchestrator(
+        stt,
+        llm,
+        tts,
+        registry,
+        machine,
+        config=AppConfig(tools=ToolsConfig(enabled=["get_time"])),
+        on_tool_executed=lambda n, r: executed.append((n, r)),
+    )
+
+    reply = asyncio.run(orch.handle_audio(b"audio"))
+
+    assert reply == "It is noon."
+    assert llm.requests == []
+    assert executed == [("get_time", "It is noon.")]
+    assert tts.spoken == ["It is noon."]
+    assert played == [b"It is noon."]
+
+
+def test_local_intent_can_be_disabled_for_llm_fallback():
+    registry = _registry_with("get_time", lambda: "It is noon.")
+    machine = StateMachine(initial_state=State.THINKING)
+    stt = FakeSTT("jam berapa sekarang")
+    llm = FakeLLM([LLMResponse(text="LLM answer.", tool_calls=[])])
+    tts = FakeTTS()
+    orch, _ = _orchestrator(
+        stt,
+        llm,
+        tts,
+        registry,
+        machine,
+        config=AppConfig(intent=IntentConfig(local_router_enabled=False)),
+    )
+
+    reply = asyncio.run(orch.handle_audio(b"audio"))
+
+    assert reply == "LLM answer."
+    assert len(llm.requests) == 1
 
 
 def test_tool_failure_is_reported_to_llm_not_raised():
@@ -242,11 +291,91 @@ def test_conversation_mode_auto_listens_after_speak():
         config=AppConfig(vad=VADConfig(enabled=False)),
     )
     
+    # Conversation mode is active (as if toggled on via start_auto_listening).
+    orch._conversation_mode_active = True
     asyncio.run(orch._speak("hello"))
-    
+
     assert machine.state is State.LISTENING
     assert recorder.is_recording is True
     assert orch._auto_listening is True
+
+
+def test_request_barge_in_interrupts_speaking_and_starts_listening():
+    machine = StateMachine(initial_state=State.SPEAKING)
+    recorder = FakeRecorder()
+    events = []
+    orch = Orchestrator(
+        stt=FakeSTT("x"),
+        llm=FakeLLM([]),
+        tts=FakeTTS(),
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+        play=lambda audio: None,
+    )
+    orch.on_pipeline_event = lambda stage, event, metadata: events.append((stage, event, metadata))
+    orch._playback_stop_event = threading.Event()
+
+    assert orch.request_barge_in() is True
+
+    assert orch._playback_stop_event.is_set()
+    assert machine.state is State.LISTENING
+    assert recorder.is_recording is True
+    assert ("tts", "interrupted", {}) in events
+
+
+def test_barge_in_preserves_conversation_auto_listening():
+    from verse.config import VADConfig
+
+    machine = StateMachine(initial_state=State.SPEAKING)
+    recorder = FakeRecorder()
+    orch = Orchestrator(
+        stt=FakeSTT("x"),
+        llm=FakeLLM([]),
+        tts=FakeTTS(),
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+        config=AppConfig(vad=VADConfig(enabled=False)),
+        play=lambda audio: None,
+    )
+    orch._conversation_mode_active = True
+    orch._playback_stop_event = threading.Event()
+
+    assert orch.request_barge_in() is True
+
+    assert machine.state is State.LISTENING
+    assert recorder.is_recording is True
+    assert orch._auto_listening is True
+    assert orch.conversation_mode_active is True
+
+
+def test_speak_interruption_does_not_emit_completed_event():
+    machine = StateMachine(initial_state=State.THINKING)
+    recorder = FakeRecorder()
+    events = []
+
+    def interrupting_play(audio, *, on_audio_level=None, stop_event=None):
+        assert stop_event is not None
+        stop_event.set()
+
+    orch = Orchestrator(
+        stt=FakeSTT("x"),
+        llm=FakeLLM([]),
+        tts=FakeTTS(),
+        registry=ToolRegistry(),
+        state_machine=machine,
+        recorder=recorder,
+        play=interrupting_play,
+    )
+    orch.on_pipeline_event = lambda stage, event, metadata: events.append((stage, event, metadata))
+
+    asyncio.run(orch._speak("hello"))
+
+    assert machine.state is State.LISTENING
+    assert recorder.is_recording is True
+    assert ("tts", "interrupted", {}) in events
+    assert ("tts", "completed", {}) not in events
 
 
 def test_conversation_mode_silence_detection_triggers_response():

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any, Callable
 
 from verse.config import AppConfig
+from verse.intent import LocalIntentMatch, LocalIntentRouter
 from verse.llm.base import LLMAdapter
 from verse.state import State
 from verse.state import StateMachine
@@ -63,6 +65,7 @@ class Orchestrator:
         self.on_audio_level = on_audio_level
         self.system_prompt = system_prompt
         self.max_tool_iterations = max_tool_iterations
+        self.local_intent_router = LocalIntentRouter()
 
         self.pre_vad_audio_hook = pre_vad_audio_hook
         self.post_recording_audio_hook = post_recording_audio_hook
@@ -92,17 +95,20 @@ class Orchestrator:
         self._vad_task: asyncio.Task | None = None
 
         self._auto_listening = False
-        self._conversation_mode_active: bool | None = None
+        # Continuous conversation is OFF until explicitly toggled on via
+        # start_auto_listening(). PTT stays one-shot.
+        self._conversation_mode_active: bool = False
         self._speech_detected = False
         self._last_speech_time = 0.0
         self._auto_listen_start_real_time = 0.0
         self._loop = None
+        self._playback_stop_event: threading.Event | None = None
+        self._barge_in_requested = False
+        self._barge_in_handled = False
 
     @property
     def conversation_mode_active(self) -> bool:
-        if self._conversation_mode_active is not None:
-            return self._conversation_mode_active
-        return self.config.hotkey.conversation_mode
+        return self._conversation_mode_active
 
     def start_listening(self, is_auto: bool = False) -> bool:
         if self.recorder is None:
@@ -111,8 +117,9 @@ class Orchestrator:
         if self.recorder.is_recording or not self.state_machine.is_idle:
             return False
         if not is_auto:
+            # Explicit PTT press → one-shot turn, no auto-continue.
             self._auto_listening = False
-            self._conversation_mode_active = None
+            self._conversation_mode_active = False
         self.state_machine.hotkey_pressed()
         self.recorder.start_recording(on_audio_level=self._handle_audio_level)
         return True
@@ -143,6 +150,10 @@ class Orchestrator:
         import time
 
         try:
+            try:
+                self._loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
             start_stt = time.time()
             transcript = await self._transcribe(audio)
             print(f"[Debug] STT took: {time.time() - start_stt:.2f}s")
@@ -179,6 +190,10 @@ class Orchestrator:
         return transcript
 
     async def _respond(self, transcript: str, history: list[dict[str, Any]]) -> str:
+        local_reply = self._try_local_intent(transcript)
+        if local_reply is not None:
+            return local_reply
+
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": self.system_prompt},
             *history,
@@ -218,6 +233,78 @@ class Orchestrator:
         if self.on_assistant_text:
             self.on_assistant_text(reply)
         return reply
+
+    def _try_local_intent(self, transcript: str) -> str | None:
+        if not self.config.intent.local_router_enabled:
+            return None
+
+        match = self.local_intent_router.route(transcript)
+        if match is None:
+            return None
+
+        threshold = self.config.intent.local_router_confidence_threshold
+        if match.confidence < threshold:
+            if self.on_pipeline_event:
+                self.on_pipeline_event(
+                    "intent",
+                    "local_missed",
+                    {
+                        "intent": match.intent,
+                        "confidence": match.confidence,
+                        "threshold": threshold,
+                    },
+                )
+            return None
+
+        if match.tool_name and not self._local_intent_tool_available(match.tool_name):
+            if self.on_pipeline_event:
+                self.on_pipeline_event(
+                    "intent",
+                    "local_unavailable",
+                    {
+                        "intent": match.intent,
+                        "confidence": match.confidence,
+                        "tool": match.tool_name,
+                    },
+                )
+            return None
+
+        if self.on_pipeline_event:
+            self.on_pipeline_event(
+                "intent",
+                "local_matched",
+                {
+                    "intent": match.intent,
+                    "confidence": match.confidence,
+                    "tool": match.tool_name,
+                },
+            )
+
+        reply = self._execute_local_intent(match)
+        if self.on_assistant_text:
+            self.on_assistant_text(reply)
+        return reply
+
+    def _local_intent_tool_available(self, tool_name: str) -> bool:
+        if self.config.tools.enabled is not None and tool_name not in self.config.tools.enabled:
+            return False
+        return self.registry.get(tool_name) is not None
+
+    def _execute_local_intent(self, match: LocalIntentMatch) -> str:
+        if match.tool_name is None:
+            return (match.reply or "").strip()
+
+        result = self._run_tool(
+            {
+                "id": f"local_intent:{match.intent}",
+                "type": "function",
+                "function": {
+                    "name": match.tool_name,
+                    "arguments": dict(match.arguments),
+                },
+            }
+        )
+        return result.strip()
 
     def _run_tool(self, tool_call: dict[str, Any]) -> str:
         name = tool_call.get("function", {}).get("name", "")
@@ -264,22 +351,88 @@ class Orchestrator:
         return text.strip()
 
     async def _speak(self, text: str) -> None:
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
         self.state_machine.tts_ready()
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "started", {})
-        if text:
-            clean_text = self._clean_markdown_for_tts(text)
-            audio = await self.tts.synthesize(clean_text)
-            if audio and self._play is not None:
-                try:
-                    self._play(audio, on_audio_level=self.on_audio_level)
-                except TypeError:
-                    self._play(audio)
+
+        stop_event = threading.Event()
+        self._playback_stop_event = stop_event
+        self._barge_in_requested = False
+        self._barge_in_handled = False
+
+        try:
+            if text:
+                clean_text = self._clean_markdown_for_tts(text)
+                audio = await self.tts.synthesize(clean_text)
+                if audio and self._play is not None:
+                    await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
+            interrupted = stop_event.is_set()
+        finally:
+            if self._playback_stop_event is stop_event:
+                self._playback_stop_event = None
+
+        if interrupted:
+            self._finish_barge_in()
+            return
+
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "completed", {})
-        self.state_machine.audio_done()
+        if self.state_machine.state is State.SPEAKING:
+            self.state_machine.audio_done()
         if self.conversation_mode_active:
             self.start_auto_listening()
+
+    def _play_audio_blocking(self, audio: bytes, stop_event: threading.Event) -> None:
+        if self._play is None:
+            return
+        try:
+            self._play(
+                audio,
+                on_audio_level=self.on_audio_level,
+                stop_event=stop_event,
+            )
+        except TypeError:
+            try:
+                self._play(audio, on_audio_level=self.on_audio_level)
+            except TypeError:
+                self._play(audio)
+
+    def request_barge_in(self) -> bool:
+        if self.state_machine.state is not State.SPEAKING and self._playback_stop_event is None:
+            return False
+
+        self._barge_in_requested = True
+        if self._playback_stop_event is not None:
+            self._playback_stop_event.set()
+
+        loop = self._loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._finish_barge_in)
+        else:
+            self._finish_barge_in()
+        return True
+
+    def _finish_barge_in(self) -> None:
+        if self._barge_in_handled:
+            return
+        self._barge_in_handled = True
+
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tts", "interrupted", {})
+
+        if self.state_machine.state is State.SPEAKING:
+            self.state_machine.audio_done()
+
+        if self.state_machine.state is State.IDLE and self.recorder is not None:
+            if self.conversation_mode_active:
+                self.start_auto_listening()
+            else:
+                self.start_listening()
 
     def start_auto_listening(self) -> None:
         if self.recorder is None:
@@ -305,6 +458,7 @@ class Orchestrator:
             self.vad_manager.reset()
             self.vad_state_machine.reset()
             if self._loop is not None:
+                print("Listening (conversation)...")
                 self._vad_task = self._loop.create_task(self._run_vad_loop())
 
     def _handle_audio_level(self, level: float) -> None:
@@ -342,11 +496,16 @@ class Orchestrator:
         except Exception as exc:
             self._report_auto_recoverable_error("auto_response_failed", exc)
 
-    async def _auto_timeout(self) -> None:
+    async def _auto_timeout(self, *, speech_detected: bool = False) -> None:
         try:
             if self.recorder and self.recorder.is_recording:
                 self.recorder.stop_recording()
             self.state_machine.audio_done()
+            # In continuous conversation mode a silent gap should not end the
+            # session — re-arm and keep listening until the user toggles off.
+            if self.conversation_mode_active:
+                print("Listening again..." if speech_detected else "Still listening...")
+                self.start_auto_listening()
         except Exception as exc:
             self._report_auto_recoverable_error("auto_timeout_failed", exc)
 
@@ -361,12 +520,29 @@ class Orchestrator:
             self._vad_task = None
 
     async def _run_vad_loop(self) -> None:
-        from verse.audio.vad import VADState
+        from verse.audio.vad import VADState, VAD_WINDOW_SAMPLES, VAD_FRAME_MS
+        from collections import deque
         import time
         import numpy as np
 
         last_send_time = 0.0
         prev_state = VADState.WAITING_FOR_SPEECH
+        # Rolling buffer so VAD always sees exactly-256-sample frames regardless
+        # of the device block size (e.g. 48kHz mic resampled to 16kHz rarely
+        # delivers exact 256-sample callbacks). Without this every frame would be
+        # dropped and the turn never endpoints.
+        sample_buffer = np.empty(0, dtype=np.float32)
+        max_probability = 0.0
+        max_rms_level = 0.0
+        rms_fallback_active = False
+        rms_fallback_armed = False
+        rms_speech_ms = 0
+        rms_silence_ms = 0
+        rms_voiced_ms = 0
+        rms_chunks: list[np.ndarray] = []
+        rms_pre_roll: deque[np.ndarray] = deque(
+            maxlen=max(1, self.config.vad.pre_roll_ms // VAD_FRAME_MS)
+        )
 
         try:
             while self._auto_listening and self.recorder and self.recorder.is_recording:
@@ -377,51 +553,171 @@ class Orchestrator:
                 except asyncio.CancelledError:
                     break
 
-                flat_frame = chunk.squeeze()
-                if flat_frame.ndim != 1 or len(flat_frame) != 512:
+                flat = np.asarray(chunk, dtype=np.float32).reshape(-1)
+                if flat.size == 0:
                     continue
+                sample_buffer = np.concatenate([sample_buffer, flat])
 
-                prob = self.vad_manager.predict(flat_frame)
-                state, utterance_chunks = self.vad_state_machine.process_frame(flat_frame, prob)
+                terminal_state: VADState | None = None
+                terminal_chunks: list[np.ndarray] | None = None
 
-                if state != prev_state:
-                    if state == VADState.SPEECH_ACTIVE and prev_state == VADState.WAITING_FOR_SPEECH:
+                while len(sample_buffer) >= VAD_WINDOW_SAMPLES:
+                    frame = sample_buffer[:VAD_WINDOW_SAMPLES]
+                    sample_buffer = sample_buffer[VAD_WINDOW_SAMPLES:]
+                    rms_level = min(
+                        1.0,
+                        max(0.0, float(np.sqrt(np.mean(np.square(frame)))) * 5.0),
+                    )
+                    max_rms_level = max(max_rms_level, rms_level)
+
+                    prob = self.vad_manager.predict(frame)
+                    max_probability = max(max_probability, prob)
+                    state, utterance_chunks = self.vad_state_machine.process_frame(frame, prob)
+
+                    if state != prev_state:
+                        if state == VADState.SPEECH_ACTIVE and prev_state == VADState.WAITING_FOR_SPEECH:
+                            print("Heard you, listening...")
+                            rms_fallback_active = False
+                            if self.on_pipeline_event:
+                                self.on_pipeline_event("vad", "speech_started", {})
+                        elif state == VADState.ENDED:
+                            duration_ms = len(utterance_chunks or []) * VAD_FRAME_MS
+                            stop_reason = "max_utterance" if duration_ms >= self.config.vad.max_utterance_ms else "silence"
+                            if self.on_pipeline_event:
+                                self.on_pipeline_event("vad", "speech_ended", {"stop_reason": stop_reason})
+                        prev_state = state
+
+                    now = time.time()
+                    if now - last_send_time >= 0.12:
+                        last_send_time = now
+                        if self.on_vad_state:
+                            self.on_vad_state(state.value, prob)
                         if self.on_pipeline_event:
-                            self.on_pipeline_event("vad", "speech_started", {})
-                    elif state == VADState.ENDED:
-                        duration_ms = len(utterance_chunks or []) * 32
-                        stop_reason = "max_utterance" if duration_ms >= self.config.vad.max_utterance_ms else "silence"
-                        if self.on_pipeline_event:
-                            self.on_pipeline_event("vad", "speech_ended", {"stop_reason": stop_reason})
-                    prev_state = state
+                            self.on_pipeline_event(
+                                "vad",
+                                "debug",
+                                {
+                                    "state": state.value,
+                                    "probability": prob,
+                                    "rms_level": rms_level,
+                                    "rms_fallback_active": rms_fallback_active,
+                                    "elapsed_ms": self.vad_state_machine.elapsed_ms,
+                                },
+                            )
 
-                now = time.time()
-                if now - last_send_time >= 0.12:
-                    last_send_time = now
-                    if self.on_vad_state:
-                        self.on_vad_state(state.value, prob)
+                    if state is VADState.ENDED:
+                        terminal_state = state
+                        terminal_chunks = utterance_chunks
+                        break
+                    elif state is VADState.TIMEOUT and not rms_fallback_active:
+                        terminal_state = state
+                        break
+
+                    if (
+                        self.config.vad.rms_fallback_enabled
+                        and state is VADState.WAITING_FOR_SPEECH
+                        and not rms_fallback_active
+                    ):
+                        rms_pre_roll.append(frame.copy())
+                        if rms_level >= self.config.vad.rms_start_level:
+                            rms_speech_ms += VAD_FRAME_MS
+                        else:
+                            rms_speech_ms = 0
+
+                        if rms_speech_ms >= self.config.vad.speech_start_ms:
+                            rms_fallback_active = True
+                            rms_fallback_armed = True
+                            rms_silence_ms = 0
+                            rms_voiced_ms = rms_speech_ms
+                            rms_chunks = list(rms_pre_roll)
+                            print("Heard you, listening...")
+                            if self.on_pipeline_event:
+                                self.on_pipeline_event(
+                                    "vad",
+                                    "rms_speech_started",
+                                    {"rms_level": rms_level, "probability": prob},
+                                )
+                    elif rms_fallback_active:
+                        rms_chunks.append(frame.copy())
+                        if rms_level < self.config.vad.rms_end_level:
+                            rms_silence_ms += VAD_FRAME_MS
+                        else:
+                            rms_silence_ms = 0
+                            rms_voiced_ms += VAD_FRAME_MS
+
+                        rms_duration_ms = len(rms_chunks) * VAD_FRAME_MS
+                        if (
+                            rms_silence_ms >= self.config.vad.end_silence_ms
+                            or rms_duration_ms >= self.config.vad.max_utterance_ms
+                        ):
+                            stop_reason = (
+                                "max_utterance"
+                                if rms_duration_ms >= self.config.vad.max_utterance_ms
+                                else "silence"
+                            )
+                            if rms_voiced_ms >= self.config.vad.min_utterance_ms:
+                                if self.on_pipeline_event:
+                                    self.on_pipeline_event(
+                                        "vad",
+                                        "rms_speech_ended",
+                                        {
+                                            "stop_reason": stop_reason,
+                                            "duration_ms": rms_duration_ms,
+                                            "voiced_ms": rms_voiced_ms,
+                                            "max_rms_level": max_rms_level,
+                                            "max_probability": max_probability,
+                                        },
+                                    )
+                                terminal_state = VADState.ENDED
+                                terminal_chunks = list(rms_chunks)
+                                break
+
+                            if self.on_pipeline_event:
+                                self.on_pipeline_event(
+                                    "vad",
+                                    "rms_speech_discarded",
+                                    {
+                                        "duration_ms": rms_duration_ms,
+                                        "voiced_ms": rms_voiced_ms,
+                                        "max_rms_level": max_rms_level,
+                                        "max_probability": max_probability,
+                                    },
+                                )
+                            rms_fallback_active = False
+                            rms_speech_ms = 0
+                            rms_silence_ms = 0
+                            rms_voiced_ms = 0
+                            rms_chunks = []
+                            rms_pre_roll.clear()
+
+                if terminal_state is VADState.ENDED:
+                    self._auto_listening = False
+                    self._cancel_vad_task()
+                    print("Processing...")
+                    await self._auto_respond_with_utterance(terminal_chunks)
+                    break
+                elif terminal_state is VADState.TIMEOUT:
+                    self._auto_listening = False
+                    self._cancel_vad_task()
                     if self.on_pipeline_event:
                         self.on_pipeline_event(
                             "vad",
-                            "debug",
+                            "timeout",
                             {
-                                "state": state.value,
-                                "probability": prob,
                                 "elapsed_ms": self.vad_state_machine.elapsed_ms,
+                                "max_probability": max_probability,
+                                "max_rms_level": max_rms_level,
+                                "rms_fallback_armed": rms_fallback_armed,
                             },
                         )
-
-                if state is VADState.ENDED:
-                    self._auto_listening = False
-                    self._cancel_vad_task()
-                    await self._auto_respond_with_utterance(utterance_chunks)
-                    break
-                elif state is VADState.TIMEOUT:
-                    self._auto_listening = False
-                    self._cancel_vad_task()
-                    if self.on_pipeline_event:
-                        self.on_pipeline_event("vad", "timeout", {})
-                    await self._auto_timeout()
+                    logger.info(
+                        "VAD timeout: elapsed_ms=%s max_probability=%.3f max_rms_level=%.3f rms_fallback_armed=%s",
+                        self.vad_state_machine.elapsed_ms,
+                        max_probability,
+                        max_rms_level,
+                        rms_fallback_armed,
+                    )
+                    await self._auto_timeout(speech_detected=rms_fallback_armed)
                     break
         except asyncio.CancelledError:
             pass

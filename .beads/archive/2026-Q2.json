@@ -1,0 +1,458 @@
+[
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-30T04:27:37Z",
+    "created_at" : "2026-05-29T16:30:12Z",
+    "description" : "Introduce granular observability pipeline events (vad, stt, intent, tool, tts, error) with specific event payloads. Maintain backwards-compatibility for old state messages, and throttle VAD debug metrics to 5-10 fps.",
+    "id" : "verse-db5",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Sistem Event Pipeline WebSocket (observability granular) telah selesai diimplementasikan dan diverifikasi sepenuhnya.\n\n(1) Letak elemen baru di UI:\nTidak ada elemen visual baru langsung di UI. Namun, semua event pipeline (VAD speech_started\/ended\/debug, STT started\/completed, Tool started\/completed, TTS started\/completed, dan error recoverable_error) secara real-time dipancarkan via WebSocket dengan tipe 'pipeline_event'. Ini akan dikonsumsi oleh React frontend untuk memvisualisasikan status granular pemrosesan suara secara dinamis (seperti indikator 'Transcribing...', 'Running tool...', dll).\n\n(2) Panduan manual testing:\n1. Jalankan unit test terintegrasi yang telah dibuat khusus untuk memverifikasi fungsionalitas pipeline event ini:\n   poetry run pytest tests\/test_pipeline_events.py\n   poetry run pytest\n2. Pastikan semua 95 pengujian lulus sepenuhnya tanpa kegagalan.\n3. Jalankan server backend (poetry run python -m verse.main) dan frontend Tauri (npm run tauri dev).\n4. Gunakan WebSocket client atau Tauri developer console, lalu bicaralah atau jalankan perintah suara.\n5. Verifikasi bahwa pesan JSON bertipe 'pipeline_event' dengan informasi lengkap seperti stage, event, dan metadata pendukung terpancar secara berurutan dan real-time sesuai aktivitas suara\/eksekusi Anda.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Refactor WebSocket Pipeline Event System",
+    "updated_at" : "2026-05-30T04:27:37Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T04:27:34Z",
+    "created_at" : "2026-05-29T18:57:11Z",
+    "description" : "Allow user to press Shift+Alt+Space to enter hands-free conversation mode, and Alt+Space for standard Push-To-Talk. Also stop conversation mode when window loses focus (blur event).",
+    "id" : "verse-e1e",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Implement dual hotkey modes (PTT vs Hands-free Toggle) + Window Blur reset",
+    "updated_at" : "2026-05-30T04:27:34Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-29T17:12:22Z",
+    "created_at" : "2026-05-29T17:06:11Z",
+    "description" : "P1 bug for Conversation Mode follow-up window regression. When the assistant auto-enters follow-up listening, speech makes the bubble react but the backend can stop without processing the utterance or surfacing an error, forcing manual PTT again. References verse-5mf Voice UX Hardening. Implement visible recoverable errors, reliable VAD ended processing, WebSocket initial\/manual trigger support, and frontend side-channel event handling.",
+    "id" : "verse-9wt",
+    "issue_type" : "bug",
+    "notes" : "Implemented backend auto-follow-up error reporting, VAD timeout eventing, valid utterance processing coverage, WebSocket initial-state\/manual-trigger support, fail-fast server startup on occupied port, frontend pipeline\/VAD side-channel handling, and DEV WebSocket manual triggers. Validation: poetry run pytest -q (107 passed), npm run build, backend startup, duplicate backend fail-fast check, WebSocket initial state check, quick manual_trigger start\/stop short-audio restart + VAD timeout back to idle. Full spoken three-turn manual validation was not possible from the agent environment.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix follow-up conversation drop after VAD speech",
+    "updated_at" : "2026-05-29T17:12:22Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-29T16:58:50Z",
+    "created_at" : "2026-05-29T16:30:49Z",
+    "description" : "Introduce optional non-blocking hook placeholders (pre_vad_audio_hook, post_recording_audio_hook, clean_for_stt) inside sounddevice callbacks and audio capture pipeline to prepare for future noise suppression\/echo cancellation without blocking callback threads.",
+    "id" : "verse-ojb",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Implement Optional Audio Noise and Echo Pre\/Post Hooks",
+    "updated_at" : "2026-05-29T16:58:50Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T16:54:58Z",
+    "created_at" : "2026-05-29T14:35:47Z",
+    "description" : "Why: Allow users to continue speaking without repeatedly pressing the hotkey during a conversation.\nWhat:\n- Implement follow-up window (e.g. 5 seconds after assistant finishes speaking).\n- In the follow-up window, automatically listen for voice input without requiring hotkey press.\n- Reflect this visually in the UI (e.g. bubble enters listening state automatically).",
+    "id" : "verse-b3q",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "(1) Letak elemen baru di UI: Setelah asisten selesai berbicara (Speaking -> Idle), bubble visual di tengah layar akan otomatis berubah kembali ke warna biru muda\/hijau (state \"listening\") dengan denyutan halus, menandakan follow-up window aktif selama 5 detik tanpa perlu menekan tombol pintas.\n(2) Panduan manual testing:\n1. Pastikan backend berjalan (poetry run python -m verse.main) dan frontend Tauri berjalan (npm run tauri dev).\n2. Tekan dan tahan tombol pintas (Alt+Space), ucapkan pesan pertama (misalnya \"Hai\") lalu lepaskan tombol pintas.\n3. Tunggu hingga asisten selesai memberikan jawaban suara.\n4. Pastikan gelembung visual langsung masuk ke visual state \"Listening\" secara otomatis tanpa perlu menekan tombol kembali.\n5. Tanpa menekan tombol apa pun, ucapkan pertanyaan lanjutan (misalnya \"Siapa namamu?\").\n6. Diam selama 1.5 detik. Pastikan asisten secara otomatis mendeteksi kesunyian tersebut, menghentikan perekaman, dan langsung memproses jawaban baru.\n7. Jika Anda diam saja selama 5 detik setelah asisten selesai berbicara, pastikan gelembung visual kembali ke state \"Idle\" secara otomatis.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Conversation mode (follow-up window)",
+    "updated_at" : "2026-05-29T16:54:58Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T16:29:25Z",
+    "created_at" : "2026-05-29T15:40:18Z",
+    "description" : "Why: Connect the new VAD system to the main assistant loop and sync states via WebSockets.\nWhat:\n- Integrate SileroVADManager and the endpointing state machine into Orchestrator.\n- Send WebSocket state updates (listening_followup, speech_detected, etc.) throttled to 5-10 updates\/sec.\n- Maintain full backward compatibility with manual push-to-talk.\n- Implement error fallback to older RMS\/WebRTC VAD if Silero fails.",
+    "id" : "verse-19y",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Integrasi Silero VAD dan VADEndpointingStateMachine ke dalam Orchestrator telah selesai diimplementasikan dan diverifikasi sepenuhnya.\n\n(1) Letak elemen baru di UI:\nTidak ada elemen visual baru di UI (refaktor backend asinkron sepenuhnya). Namun, status VAD dan nilai probabilitas suara secara dinamis disiarkan via WebSocket server sebagai pesan dengan tipe 'vad_update' sehingga frontend di masa mendatang dapat menggunakannya untuk animasi bubble di layar utama.\n\n(2) Panduan manual testing:\n1. Jalankan unit test terintegrasi yang telah dibuat untuk memverifikasi fungsionalitas asinkron loop VAD, timeout, dan fallback RMS:\n   poetry run pytest tests\/test_orchestrator_vad.py\n   poetry run pytest\n2. Pastikan semua 89 pengujian lulus sepenuhnya tanpa regresi.\n3. Jalankan server backend (poetry run python -m verse.main) dan tauri frontend (npm run tauri dev).\n4. Tekan hotkey (Alt+Space) untuk merekam pesan secara manual, pastikan rekaman manual tetap berfungsi normal (backward compatibility penuh).\n5. Aktifkan Conversation Mode, bicaralah dengan asisten, dan pastikan ketika asisten selesai berbicara, microphone otomatis mendeteksi suara Anda menggunakan Silero VAD dan berhenti merekam secara presisi ketika Anda diam selama 1.4 detik.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "VAD: Integrate Silero VAD and State Machine into Orchestrator",
+    "updated_at" : "2026-05-29T16:29:25Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T16:14:18Z",
+    "created_at" : "2026-05-29T15:40:13Z",
+    "description" : "Why: Prevent premature cutting off and handle natural pauses during conversation mode.\nWhat:\n- Implement state machine with states: WAITING_FOR_SPEECH, SPEECH_ACTIVE, ENDED, TIMEOUT.\n- Apply hysteresis (start_threshold vs end_threshold) and debounce (160ms speech start).\n- Add a pre-roll buffer (~300ms) to prevent cutting off the first word.\n- Add min\/max utterance duration controls (max 20s).",
+    "id" : "verse-ji1",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "(1) Letak elemen baru di UI: Tidak ada elemen UI visual baru (backend-only endpointing state machine VAD).\n(2) Panduan manual testing:\n1. Jalankan unit test khusus untuk memverifikasi fungsionalitas transisi state, debounce, pre-roll buffer, hysteresis, dan batas durasi minimum\/maksimum:\n   poetry run pytest tests\/test_vad_state.py\n2. Pastikan ke-7 skenario pengujian (termasuk deteksi kesunyian alami dan penolakan suara singkat palsu) lulus sepenuhnya.\n3. Jalankan aplikasi utama (poetry run python -m verse.main) untuk memastikan tidak ada kesalahan pemuatan pustaka atau runtime.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "VAD: Implement state machine endpointing and hysteresis",
+    "updated_at" : "2026-05-29T16:14:18Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T15:59:15Z",
+    "created_at" : "2026-05-29T15:40:10Z",
+    "description" : "Why: Prevent blocking operations inside the sounddevice InputStream callback thread.\nWhat:\n- Modify AudioRecorder's callback to only copy audio frames and push them to a thread-safe bounded queue.\n- Use loop.call_soon_threadsafe(...) to pass frames safely to the asyncio event loop.\n- Implement queue overflow handling to ensure real-time stream stability.",
+    "id" : "verse-7ht",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "(1) Letak elemen baru di UI: Tidak ada elemen UI visual baru (backend-only refactor untuk AudioRecorder).\n(2) Panduan manual testing:\n1. Jalankan unit test khusus untuk memverifikasi fungsionalitas asinkron queue dan penanganan luapan queue (overflow):\n   poetry run pytest tests\/test_audio.py\n2. Pastikan test case 'test_audio_recorder_bounded_asyncio_queue' dan 'test_audio_recorder_queue_overflow' lulus sepenuhnya.\n3. Jalankan aplikasi utama (poetry run python -m verse.main) untuk memastikan rekaman manual masih dapat dipanggil dan berfungsi normal.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "VAD: Refactor AudioRecorder to use bounded asyncio queue",
+    "updated_at" : "2026-05-29T15:59:15Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T15:55:55Z",
+    "created_at" : "2026-05-29T15:40:05Z",
+    "description" : "Why: Replace RMS-based threshold detection with a robust local neural network VAD.\nWhat:\n- Install dependencies as needed (using lightweight ONNX configuration).\n- Implement SileroVADManager that loads the Silero VAD ONNX model and predicts speech probability from 16kHz mono float32 audio samples.\n- Add config fields under VADConfig for threshold parameters.",
+    "id" : "verse-gqc",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "(1) Letak elemen baru di UI: Tidak ada elemen UI visual baru (backend-only VAD manager dan konfigurasi).\n(2) Panduan manual testing:\n1. Jalankan unit test untuk memastikan SileroVADManager bekerja dengan baik: poetry run pytest tests\/test_vad.py.\n2. Jalankan perintah manual testing berikut untuk menguji unduhan otomatis model ONNX VAD resmi dan inisialisasinya:\n   poetry run python -c \"from verse.audio.vad import SileroVADManager; m = SileroVADManager(); print('Available:', m.is_available)\"\n3. Pastikan model ONNX VAD otomatis terunduh di ~\/.verse\/models\/silero_vad.onnx jika sebelumnya belum ada, dan terminal mencetak 'Available: True'.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "VAD: Integrate Silero VAD and create SileroVADManager",
+    "updated_at" : "2026-05-29T15:55:55Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T15:55:52Z",
+    "created_at" : "2026-05-29T14:35:37Z",
+    "description" : "Why: ElevenLabs requires a paid subscription, while edge-tts provides a free, fast, and high-quality TTS streaming option using Microsoft Edge's API.\nWhat:\n- Implement EdgeTTSAdapter in Python backend under backend\/verse\/tts\/.\n- Read voice configuration from AppConfig (default to e.g. en-US-AvaNeural or id-ID-GadisNeural).\n- Support synthesis of audio bytes and stream\/chunk playback.\n- Integrate with Orchestrator to replace MacOSSayAdapter.",
+    "id" : "verse-68n",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Telah mengimplementasikan integrasi Edge-TTS (verse-68n) sebagai penyedia TTS utama dan gratis menggantikan ElevenLabs.\n\n(1) Elemen UI baru\/diubah:\n- Tidak ada elemen visual UI baru; murni perubahan pada logika backend pemrosesan suara (TTS adapter) di edge_tts.py dan konfigurasi default.\n\n(2) Panduan Testing Manual Langkah-demi-Langkah:\n1. Pastikan dependensi terpasang dengan menjalankan `poetry install` di direktori `backend`.\n2. Jalankan unit test untuk memverifikasi fungsionalitas adapter:\n   `cd backend && poetry run pytest tests\/test_tts_edge.py`\n   Pastikan 3 test passed.\n3. Jalankan aplikasi backend: `poetry run python -m verse.main`.\n4. Jalankan aplikasi frontend Tauri: `npm run tauri dev`.\n5. Tekan dan tahan tombol Alt+Space, ajukan pertanyaan secara lisan (misalnya: 'sekarang jam berapa?').\n6. Dengarkan suara respons asisten yang menggunakan suara Edge-TTS GadisNeural berbahasa Indonesia (dan pastikan visual bubble membesar\/mengecil mengikuti amplitudo suara asisten).",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Edge-TTS integration",
+    "updated_at" : "2026-05-29T15:55:52Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-29T14:37:04Z",
+    "created_at" : "2026-05-29T11:20:06Z",
+    "description" : "Why: Turn working CLI pipeline jadi hotkey-triggered voice interaction dengan basic tools. What: - Global hotkey listener, state machine, tool registry, function calling, history persistence - Milestone: press Alt+Space, say 'play some jazz', Spotify starts Out of scope: - Tauri UI, WebSocket, visual bubble",
+    "id" : "verse-053",
+    "issue_type" : "epic",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "[Epic] Phase 1 — Push-to-Talk MVP",
+    "updated_at" : "2026-05-29T14:37:04Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T14:37:02Z",
+    "created_at" : "2026-05-29T11:20:06Z",
+    "description" : "Why: Foundation CLI pipeline harus selesai sebelum bisa develop hotkey, UI, atau tools. What: - Semua modul inti berjalan: audio, STT, LLM, TTS, config, keychain - Milestone: jalankan dari CLI, bicara ke mic, dengar respons Out of scope: - Hotkey listener, state machine, tool calling, Tauri UI",
+    "id" : "verse-400",
+    "issue_type" : "epic",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "[Epic] Phase 0 — Foundation",
+    "updated_at" : "2026-05-29T14:37:02Z"
+  },
+  {
+    "closed_at" : "2026-05-29T14:36:59Z",
+    "created_at" : "2026-05-29T11:20:07Z",
+    "description" : "Why: Add visual feedback agar user tahu state Verse (listening\/thinking\/speaking). What: - Tauri floating window, WebSocket server+client, state sync, audio level streaming, React bubble UI - Milestone: bubble appears, reacts to mic, then to TTS output Out of scope: - ElevenLabs streaming, extended tools, settings UI (Phase 3)",
+    "id" : "verse-rdo",
+    "issue_type" : "epic",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "[Epic] Phase 2 — Frontend Integration",
+    "updated_at" : "2026-05-29T14:36:59Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T14:26:15Z",
+    "created_at" : "2026-05-29T11:21:31Z",
+    "description" : "Why: UI harus mencerminkan state Verse secara real-time agar user tahu apa yang sedang terjadi. What: - Wire state machine state_changed events -> WebSocket broadcast (backend side) - Frontend React state: idle\/listening\/thinking\/speaking\/error - CSS class \/ prop changes berdasarkan state - Test semua state transitions tampil di UI dengan benar Out of scope: - Audio reactive animation (separate issue), error message display design",
+    "id" : "verse-c9f",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Telah memverifikasi sinkronisasi state dari backend state machine ke visual state frontend (verse-c9f) dan menambahkan unit test transisi state lengkap untuk WebSocket server.\n\nUpdate: Mengatasi masalah di mana gelembung visual selalu berwarna ungu. Masalah ini disebabkan oleh Python asyncio event loop yang melakukan garbage collection terhadap task WebSocket server karena tidak disimpan sebagai referensi kuat (strong reference) di main.py. Kami telah memperbaikinya dengan menjaga referensi kuat terhadap task ws_server di main.py dan task consumer di server.py sehingga koneksi WebSocket tetap stabil dan sinkronisasi warna state berjalan dengan sempurna.\n\n(1) Elemen UI baru\/diubah:\n- Komponen bubble visual utama dan indikator status koneksi (.ws-status) di pojok kanan atas window floating Verse.\n\n(2) Panduan Testing Manual Langkah-demi-Langkah:\n1. Jalankan backend: `cd backend && poetry run python -m verse.main`.\n2. Jalankan frontend: `cd frontend && npm run tauri dev` atau `npm run dev`.\n3. Pastikan indikator koneksi di pojok kanan atas berwarna hijau ('open').\n4. Tekan dan tahan Alt+Space:\n   - Amati status state di backend berganti ke 'listening', dan bubble di frontend berubah warna menjadi cyan.\n5. Lepaskan Alt+Space:\n   - Amati status state berganti ke 'thinking' (berwarna ungu), lalu ke 'speaking' (berwarna merah muda), dan kembali ke 'idle' (berwarna violet\/biru).\n6. Semua transisi visual ini berjalan secara real-time mengikuti event dari backend.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "State sync — backend state machine ke frontend visual states",
+    "updated_at" : "2026-05-29T14:26:15Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T14:21:13Z",
+    "created_at" : "2026-05-29T11:21:29Z",
+    "description" : "Why: Bubble harus bereaksi ke audio agar visual feedback terasa hidup dan informatif. What: - Backend: stream audio_level events (0.0-1.0) via WebSocket saat LISTENING (mic level) dan SPEAKING (TTS playback level) - Target update rate: 30fps minimum - Frontend: useAudioLevel hook yang subscribe ke audio_level events - Expose audioLevel value ke bubble component Out of scope: - Full bubble animation design (Rayne handles), audio visualization details",
+    "id" : "verse-9ju",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Telah mengimplementasikan streaming level audio (mic + TTS amplitude) untuk reaktivitas bubble pada aplikasi Verse.\n\n(1) Elemen UI baru\/diubah:\n- Floating widget (bubble) utama pada aplikasi Tauri\/React (112x112px di tengah layar). Bubble ini menggantikan elemen `.shell-anchor` statis sebelumnya.\n\n(2) Panduan Testing Manual Langkah-demi-Langkah:\n1. Jalankan server backend: `cd backend && poetry run python -m verse.main`.\n2. Jalankan aplikasi frontend: `cd frontend && npm run tauri dev` atau `npm run dev`.\n3. Tekan dan tahan tombol pintasan `Alt+Space` untuk mulai berbicara:\n   - Amati gelembung (bubble) berubah warna menjadi cyan menyala ('listening').\n   - Ucapkan sesuatu ke mikrofon dan pastikan gelembung membesar dan mengecil secara dinamis (bereaksi) mengikuti intensitas suara Anda.\n4. Lepaskan tombol pintasan `Alt+Space`:\n   - Amati gelembung berubah menjadi warna ungu yang berdenyut ('thinking') saat memproses respons.\n5. Saat asisten mulai berbicara (mengeluarkan suara TTS):\n   - Amati gelembung berubah menjadi warna merah muda\/magenta menyala ('speaking').\n   - Pastikan ukuran gelembung membesar dan mengecil secara dinamis mengikuti suara asisten macOS say yang sedang dibacakan.\n6. Setelah suara asisten selesai dibacakan:\n   - Amati gelembung kembali ke keadaan semula (keadaan 'idle' berwarna violet\/biru lembut dengan denyutan lambat).",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Audio level streaming — mic + TTS amplitude untuk bubble reactivity",
+    "updated_at" : "2026-05-29T14:21:13Z"
+  },
+  {
+    "assignee" : "claude",
+    "closed_at" : "2026-05-29T13:41:45Z",
+    "created_at" : "2026-05-29T11:20:58Z",
+    "description" : "Why: Harus bisa pass tool definitions ke LLM dan execute tool calls yang di-return secara multi-step. What: - Update LLMAdapter.chat() untuk handle tool definitions dan tool_calls dalam response - orchestrator.py: agent loop yang handle multi-step tool execution (lihat pseudocode PRD section 5.6) - Wire: hotkey -> audio -> STT -> LLM (with tools) -> tool execution loop -> TTS - End-to-end test: say 'play some jazz' -> Spotify starts Out of scope: - WebSocket integration, conversation mode (5s follow-up window)",
+    "id" : "verse-k0j",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Selesai. Agent orchestrator loop sudah diimplementasi — app jadi bisa dipakai end-to-end.\n\nFile:\n- verse\/orchestrator.py: kelas Orchestrator + build_orchestrator(config).\n  - handle_audio(audio): STT -> LLM (with tools) -> tool execution loop (max 5 iterasi) -> TTS -> playback.\n  - start_listening()\/stop_and_respond(): flow hotkey lengkap (rekam -> proses) pakai recorder.\n  - State machine di-drive: hotkey_pressed\/released, tts_ready, audio_done, fail() saat error.\n  - Tool gagal tdk meledak — hasil error dikirim balik ke LLM sebagai tool message.\n  - Callback opsional: on_transcript\/on_assistant_text\/on_tool_executed (buat WS nanti).\n- verse\/main.py: entry point demo (rekam -> Enter -> respond).\n\nTest (lulus 5): poetry run pytest tests\/test_orchestrator.py\nFull suite: poetry run pytest  (46 passed)\n\nTest manual end-to-end (butuh DEEPSEEK_API_KEY + GROQ_API_KEY + mic):\n  export DEEPSEEK_API_KEY=\"sk-...\"   # dari opencode-go gateway\n  export GROQ_API_KEY=\"...\"\n  poetry run python -m verse.main\n  -> \"Listening...\" muncul, ngomong \"play some jazz\", tekan Enter, Verse balas + (kalau ada tool) Spotify jalan.\n\nCatatan: config.llm sudah pakai base_url dari config (verse-4jx), jadi gateway opencode-go (model deepseek-v4-flash-free) langsung kepakai dari ~\/.verse\/config.toml.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "LLM function calling + agent orchestrator loop",
+    "updated_at" : "2026-05-29T13:41:45Z"
+  },
+  {
+    "assignee" : "claude",
+    "closed_at" : "2026-05-29T13:41:25Z",
+    "created_at" : "2026-05-29T11:20:58Z",
+    "description" : "Why: Tool calling adalah fitur utama yang membedakan Verse dari chatbot biasa. What: - tools\/registry.py: ToolRegistry dengan register\/get\/list_definitions\/execute - tools\/builtin\/spotify.py: play_music (AppleScript), pause_music, next_track, previous_track - tools\/builtin\/system.py: open_app (open -a), set_volume, get_time - tools\/builtin\/web.py: web_search (Brave API), open_url - JSON schema definitions untuk setiap tool - Integration test: execute setiap tool secara manual Out of scope: - get_weather, take_note, calendar tools (Phase 3)",
+    "id" : "verse-2k5",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Selesai. Tool registry + builtin tools sudah diimplementasi.\n\nFile:\n- verse\/tools\/registry.py: Tool (dataclass) + ToolRegistry (register\/get\/execute\/execute_call\/list_definitions) + build_default_registry(enabled).\n- verse\/tools\/builtin\/spotify.py: play_music (osascript Spotify; kalau ada query buka spotify:search:<q> lalu play), pause_music.\n- verse\/tools\/builtin\/system.py: open_app (open -a), get_time.\n- verse\/tools\/builtin\/web.py: web_search (Brave API via BRAVE_API_KEY\/Keychain), open_url.\n\nCatatan:\n- play_music dengan query memutar hasil pencarian Spotify (bukan track persis) krn AppleScript tdk bisa search by name. Cukup buat milestone \"play some jazz\".\n- web_search butuh BRAVE_API_KEY (env atau Keychain). Tanpa key akan raise (di-handle orchestrator jadi pesan ke LLM).\n\nTest (lulus 11): poetry run pytest tests\/test_tools.py\nTest manual tool nyata (butuh Spotify\/app terbuka):\n  poetry run python -c \"from verse.tools.builtin import spotify; print(spotify.play_music('jazz'))\"\n  poetry run python -c \"from verse.tools.builtin import system; print(system.open_app('Notes'))\"",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Tool registry + 5 core tools (play_music, pause_music, open_app, web_search, get_time)",
+    "updated_at" : "2026-05-29T13:41:25Z"
+  },
+  {
+    "assignee" : "claude",
+    "closed_at" : "2026-05-29T13:16:00Z",
+    "created_at" : "2026-05-29T12:47:12Z",
+    "description" : "Why: base_url di DeepSeekAdapter ke-hardcode ke https:\/\/api.deepseek.com (deepseek.py:68), jadi key gateway opencode-go (model deepseek-v4-flash-free di https:\/\/opencode.ai\/zen\/v1) tidak bisa dipakai lewat config normal, harus inject client manual. User hanya akan pakai deepseek lewat gateway ini. What: - Tambah field base_url ke LLMConfig + parsing di config_from_mapping - DeepSeekAdapter pakai self.config.base_url (bukan hardcode) - Update docs\/config.example.toml [llm] ke setup gateway opencode-go - Update test config + test llm Out of scope: - Provider adapter lain (gemini\/claude\/openai)",
+    "id" : "verse-4jx",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: base_url LLM sekarang configurable, tidak lagi hardcode ke api.deepseek.com. Detail:\n- backend\/verse\/config.py: tambah field LLMConfig.base_url (default 'https:\/\/api.deepseek.com') + parsing di config_from_mapping.\n- backend\/verse\/llm\/deepseek.py:68: OpenAI client pakai self.config.base_url (bukan hardcode).\n- docs\/config.example.toml: section [llm] diubah ke setup gateway opencode-go (model='deepseek-v4-flash-free', base_url='https:\/\/opencode.ai\/zen\/v1') + komentar cara simpan API key.\n- Test: test_config.py (+2: default base_url & parse base_url), test_llm_deepseek.py (+1: client kebangun dengan base_url dari config).\n\nLokasi UI: tidak ada elemen UI; murni backend config\/data layer + docs + test.\n\nPanduan testing manual:\n1. cd backend && poetry run pytest tests\/test_config.py tests\/test_llm_deepseek.py -> pastikan 6 passed. Full suite poetry run pytest -> 30 passed.\n2. Test real ke gateway (sekarang TANPA inject client manual, cukup lewat config):\n   export DEEPSEEK_API_KEY='sk-...'   # key opencode-go (key lama sudah bocor di chat, pakai key baru)\n   poetry run python -c \"\n   import asyncio\n   from verse.config import LLMConfig\n   from verse.llm.deepseek import DeepSeekAdapter\n   adapter = DeepSeekAdapter(LLMConfig(model='deepseek-v4-flash-free', base_url='https:\/\/opencode.ai\/zen\/v1'))\n   print('JAWABAN:', asyncio.run(adapter.chat([{'role':'user','content':'Say hi'}])).text)\n   \"\n3. Atau via file config: copy docs\/config.example.toml ke ~\/.verse\/config.toml, simpan key (set_api_key('deepseek','sk-...')), lalu DeepSeekAdapter(load_config().llm).\n\nQuality gate: poetry run pytest = 30 passed.\n\nCatatan git\/push: remote origin belum dikonfigurasi; commit lokal saja.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "LLM adapter: base_url configurable (dukung gateway opencode-go)",
+    "updated_at" : "2026-05-29T13:16:00Z"
+  },
+  {
+    "assignee" : "claude",
+    "closed_at" : "2026-05-29T13:12:59Z",
+    "created_at" : "2026-05-29T11:21:30Z",
+    "description" : "Why: Frontend harus bisa terima dan handle real-time events dari backend. What: - useWebSocket hook di React (src\/hooks\/useWebSocket.ts) - Connect ke ws:\/\/localhost:8765 dengan auto-reconnect exponential backoff - Handle incoming: state_change -> update React state, audio_level -> emit ke viz, transcript -> show text - Handle outgoing: manual_trigger (start\/stop_listening), interrupt - Connection status indicator (minimal) Out of scope: - Visual bubble component, full UI design",
+    "id" : "verse-7p6",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan WebSocket client di frontend React. File baru: frontend\/src\/types\/ws.ts (tipe pesan masuk\/keluar mirror protocol backend: state_change, audio_level, transcript, assistant_text, tool_executed, error + outgoing manual_trigger\/interrupt) dan frontend\/src\/hooks\/useWebSocket.ts (connect ke ws:\/\/localhost:8765, auto-reconnect exponential backoff 0.5s->10s, parse pesan masuk, expose connectionStatus\/lastState\/audioLevel\/transcript\/assistantText, fungsi send untuk command keluar, cleanup socket+timer di unmount). File diubah: frontend\/src\/App.tsx (pakai hook + indikator titik status koneksi) dan frontend\/src\/App.css (style .ws-status).\n\nLokasi UI: indikator status koneksi berupa TITIK KECIL di POJOK KANAN ATAS window floating Verse. Warna: hijau = tersambung (open), kuning = sedang connecting\/reconnect, merah = closed, abu-abu = default. Hover titik menampilkan tooltip status + state terakhir.\n\nPanduan testing manual:\n1. cd frontend && npm run build -> pastikan lulus tanpa error TypeScript (sudah diverifikasi: build sukses).\n2. Jalankan backend WS server dulu (lihat issue verse-7jq, jalankan WebSocketServer.serve() di port 8765).\n3. cd frontend && npm run tauri dev -> window Verse muncul.\n4. Cek titik kanan atas berubah jadi HIJAU (tersambung).\n5. Di backend, trigger state machine (mis. machine.hotkey_pressed()) yang ter-attach ke server; hover titik untuk lihat state terakhir berubah (listening, dst).\n6. Matikan backend server -> titik berubah KUNING (connecting) dan hook otomatis mencoba reconnect; nyalakan lagi server -> titik balik HIJAU.\n\nQuality gate: npm run build (tsc + vite) = sukses; backend full suite poetry run pytest = 28 passed.\n\nCatatan git\/push: remote origin belum dikonfigurasi (git remote -v kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan; commit lokal saja, push menyusul setelah remote ditambahkan.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "WebSocket client — React hook + incoming message handling",
+    "updated_at" : "2026-05-29T13:12:59Z"
+  },
+  {
+    "assignee" : "claude",
+    "closed_at" : "2026-05-29T13:12:57Z",
+    "created_at" : "2026-05-29T11:21:30Z",
+    "description" : "Why: Frontend butuh real-time updates dari backend (state changes, audio levels, transcripts). What: - ws\/server.py dengan websockets library, default port 8765 - Message types backend->frontend: state_change, audio_level, transcript, assistant_text, tool_executed, error - Integrate dengan state machine: state changes auto-broadcast ke semua WS clients - Auto-reconnect handling Out of scope: - Frontend->backend messages (handled di WS client issue)",
+    "id" : "verse-7jq",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan WebSocket server backend sebagai event broadcaster. File baru: backend\/verse\/ws\/protocol.py (builder pesan murni: state_change, audio_level, transcript, assistant_text, tool_executed, error sesuai PRD 5.7) dan backend\/verse\/ws\/server.py (kelas WebSocketServer pakai library websockets, default host=localhost port=8765, register\/unregister client, broadcast JSON ke semua client + drop client mati, bridge thread-safe sync->async lewat loop.call_soon_threadsafe untuk event dari state machine, attach_state_machine untuk auto-broadcast perubahan state). Handling pesan dari frontend (manual_trigger\/interrupt) sengaja out-of-scope (akan di issue WS client\/state sync).\n\nLokasi UI: tidak ada elemen UI baru\/berubah; murni backend di backend\/verse\/ws\/ dan test backend.\n\nPanduan testing manual:\n1. cd backend && poetry run pytest tests\/test_ws_server.py -> pastikan 4 test passed.\n2. Jalankan full suite: poetry run pytest -> pastikan 28 passed (tidak ada regresi).\n3. Smoke test live: jalankan poetry run python lalu:\n   import asyncio\n   from verse.state import StateMachine\n   from verse.ws.server import WebSocketServer\n   srv = WebSocketServer(); m = StateMachine(); srv.attach_state_machine(m)\n   async def go():\n       import asyncio\n       task = asyncio.create_task(srv.serve())\n       await asyncio.sleep(0.2); print('server up, clients:', srv.client_count)\n   asyncio.run(go())\n4. (Opsional) Hubungkan client WebSocket ke ws:\/\/localhost:8765, lalu panggil m.hotkey_pressed() dan pastikan client menerima {\"type\":\"state_change\",\"state\":\"listening\"}.\n\nQuality gate: poetry run pytest = 28 passed.\n\nCatatan git\/push: remote origin belum dikonfigurasi (git remote -v kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan; commit lokal saja, push menyusul setelah remote ditambahkan.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "WebSocket server — Python backend event broadcaster",
+    "updated_at" : "2026-05-29T13:12:57Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T13:12:54Z",
+    "created_at" : "2026-05-29T11:20:33Z",
+    "description" : "Why: Voice input harus di-transcribe ke text sebelum diproses LLM. What: - stt\/base.py: STTAdapter ABC dengan method transcribe(audio: bytes, language) -> str - stt\/groq.py: GroqWhisperAdapter - Config-driven API key dari Keychain - Test: record audio -> transcribe -> print transcript - Target latency <800ms Out of scope: - Local Whisper fallback, OpenAI STT",
+    "id" : "verse-f5g",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan interface STT backend (`STTAdapter`) dan `GroqWhisperAdapter` untuk transkripsi audio bytes via Groq Whisper, dengan API key dari env `GROQ_API_KEY` atau Keychain `groq`. Bahasa `auto` tidak dikirim ke API; bahasa eksplisit seperti `id` diteruskan.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/stt\/` dan test `backend\/tests\/test_stt_groq.py`.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_stt_groq.py` dan pastikan 2 test passed.\n2. Pastikan dependency backend `groq` sudah terpasang.\n3. Simpan API key Groq via env `GROQ_API_KEY` atau helper Keychain `set_api_key(\"groq\", \"...\")`.\n4. Rekam audio pendek dengan modul `verse.audio.capture.record_for_seconds(5)`.\n5. Jalankan `asyncio.run(GroqWhisperAdapter().transcribe(audio, language=\"id\"))` dan pastikan transcript muncul.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 24 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "STT adapter — Groq Whisper integration",
+    "updated_at" : "2026-05-29T13:12:54Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T13:12:52Z",
+    "created_at" : "2026-05-29T11:20:58Z",
+    "description" : "Why: Hotkey adalah satu-satunya entry point user ke Verse, harus reliable dan low-latency. What: - hotkey.py dengan pynput library - Default trigger: Alt+Space, configurable via config.toml - Emit events: hotkey_pressed \/ hotkey_released ke state machine - Verify tidak konflik dengan existing macOS shortcuts - Latency hotkey press -> callback <50ms Out of scope: - Toggle mode (tap once on\/off), custom hotkey UI",
+    "id" : "verse-59i",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan global hotkey listener backend untuk trigger default `alt+space`, parsing alias tombol seperti option\/alt, callback press\/release, dan integrasi opsional ke `StateMachine` melalui event hotkey_pressed\/hotkey_released. Import `pynput` dibuat lazy agar test backend tetap bisa jalan tanpa permission keyboard global.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/hotkey.py` dan test `backend\/tests\/test_hotkey.py`.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_hotkey.py` dan pastikan 4 test passed.\n2. Pastikan dependency backend sudah terpasang, terutama `pynput`, lalu pastikan macOS memberi Accessibility\/Input Monitoring permission ke terminal\/app yang menjalankan backend.\n3. Dari Python REPL, buat `StateMachine()` dan `HotkeyListener(state_machine=machine)`, panggil `start()`, tekan dan tahan Option\/Alt+Space, lalu lepaskan.\n4. Pastikan state berubah dari idle ke listening saat tombol ditekan dan ke thinking saat dilepas.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 24 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Global hotkey listener — Alt+Space push-to-talk",
+    "updated_at" : "2026-05-29T13:12:52Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T13:12:49Z",
+    "created_at" : "2026-05-29T11:20:32Z",
+    "description" : "Why: Verse perlu bisa berbicara. Mulai dengan macOS say karena free dan always available. What: - tts\/base.py: TTSAdapter ABC dengan stream(text) -> AsyncGenerator[bytes] - tts\/macos_say.py: wrap subprocess macOS say command - tts\/elevenlabs.py: stub\/placeholder untuk Phase 3 - Test: text input -> audio diputar Out of scope: - OpenAI TTS, ElevenLabs streaming (Phase 3)",
+    "id" : "verse-6v3",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan interface TTS backend (`TTSAdapter`), adapter `MacOSSayAdapter` yang membungkus command macOS `say` dan menghasilkan bytes audio AIFF, serta stub eksplisit `ElevenLabsAdapter` untuk fase berikutnya.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/tts\/` dan test `backend\/tests\/test_tts_macos_say.py`.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_tts_macos_say.py` dan pastikan 3 test passed.\n2. Dari Python REPL di backend, buat `MacOSSayAdapter()` dan jalankan `audio = asyncio.run(adapter.synthesize(\"Halo dari Verse\"))`.\n3. Pastikan `audio` berisi bytes. Untuk mendengar hasilnya, simpan ke file `.aiff` atau kirim ke modul playback yang mendukung format tersebut.\n4. Jalankan langsung `say \"Halo dari Verse\"` di terminal untuk memastikan command macOS say tersedia di mesin ini.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 24 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "TTS adapter — macOS say + ElevenLabs stub",
+    "updated_at" : "2026-05-29T13:12:49Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:45:56Z",
+    "created_at" : "2026-05-29T11:20:31Z",
+    "description" : "Why: Perlu LLM baseline bekerja sebelum tambah tool calling di Phase 1. What: - llm\/base.py: LLMAdapter ABC dengan chat(messages, tools) -> LLMResponse - llm\/deepseek.py: DeepSeekAdapter - Config-driven provider dan model selection - Test: send message, get text response - Exclude tools schema for now Out of scope: - Tool calling (Phase 1), Gemini\/Claude adapters",
+    "id" : "verse-rxu",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan interface LLM backend (`LLMAdapter`, `LLMResponse`) dan `DeepSeekAdapter` untuk chat dasar tanpa tools secara default, menggunakan endpoint OpenAI-compatible DeepSeek dengan API key dari env `DEEPSEEK_API_KEY` atau Keychain `deepseek`. Adapter juga sudah menyiapkan parsing tool_calls untuk issue berikutnya, tetapi request tools hanya dikirim jika diberikan.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/llm\/` dan test `backend\/tests\/test_llm_deepseek.py`.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_llm_deepseek.py` dan pastikan 2 test passed.\n2. Pastikan dependency backend `openai` sudah terpasang.\n3. Simpan API key DeepSeek via env `DEEPSEEK_API_KEY` atau helper Keychain `set_api_key(\"deepseek\", \"...\")`.\n4. Dari Python REPL, buat `DeepSeekAdapter()` lalu panggil `asyncio.run(adapter.chat([{ \"role\": \"user\", \"content\": \"Say hi\" }]))`.\n5. Pastikan response memiliki field `text` berisi jawaban model.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 24 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "LLM adapter — DeepSeek basic chat (no tools)",
+    "updated_at" : "2026-05-29T12:45:56Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:08:48Z",
+    "created_at" : "2026-05-29T11:21:29Z",
+    "description" : "Why: UI Verse harus selalu visible di atas app lain tanpa mengganggu workflow. What: - Setup Tauri window config: transparent, frameless, always-on-top, posisi top-right - Window show\/hide dapat di-trigger dari backend event - Verify window muncul dalam <100ms - macOS permission: accessibility access Out of scope: - React components (separate issue), window position settings UI",
+    "id" : "verse-3p7",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: mengubah Tauri shell menjadi floating window transparan, frameless, always-on-top, non-resizable, visible on all workspaces bila didukung, diposisikan top-right saat startup\/show, dan menyediakan command\/event show\/hide\/toggle.\n\nLokasi UI: elemen baru\/berubah muncul di main Tauri app window\/shell. Window utama sekarang berukuran kecil di kanan atas layar dengan background transparan dan anchor lingkaran kecil sebagai penanda shell; tidak ada sidebar, menu, atau settings UI baru.\n\nPanduan testing manual:\n1. Jalankan `cd frontend && npm run tauri dev`.\n2. Pastikan window Verse muncul di kanan atas layar, tanpa title bar\/frame native, dan area di luar anchor lingkaran terlihat transparan.\n3. Buka app lain dan pastikan window Verse tetap berada di atas app tersebut.\n4. Pindah Space\/desktop macOS dan cek apakah window tetap visible bila platform mendukung `visibleOnAllWorkspaces`.\n5. Buka console devtools Tauri, lalu jalankan `window.__VERSE_WINDOW__.hide()`, `window.__VERSE_WINDOW__.show()`, dan `window.__VERSE_WINDOW__.toggle()`; pastikan window hide\/show\/toggle merespons cepat.\n6. Jika macOS meminta permission terkait window\/accessibility, berikan akses dan ulangi langkah 1-5.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 13 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Tauri shell — transparent floating window (always-on-top)",
+    "updated_at" : "2026-05-29T12:08:48Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:06:16Z",
+    "created_at" : "2026-05-29T11:20:59Z",
+    "description" : "Why: State machine mencegah race condition dan mendefinisikan flow interaksi utama. What: - state.py dengan states: IDLE, LISTENING, THINKING, SPEAKING, ERROR - Transitions: IDLE->LISTENING (hotkey press), LISTENING->THINKING (hotkey release), THINKING->SPEAKING (TTS ready), SPEAKING->IDLE (audio done), any->ERROR, ERROR->IDLE (3s) - Emit state_changed events yang bisa di-subscribe - Unit tests valid dan invalid transitions Out of scope: - WebSocket broadcast (Phase 2), visual feedback",
+    "id" : "verse-axy",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan state machine backend untuk state idle\/listening\/thinking\/speaking\/error, validasi transisi, subscriber event, dan auto-reset error ke idle setelah 3 detik.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/state.py` dan test backend.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_state.py` dan pastikan 4 test passed.\n2. Jalankan Python REPL di folder backend dengan `poetry run python`.\n3. Import `StateMachine`, panggil urutan `hotkey_pressed()`, `hotkey_released()`, `tts_ready()`, `audio_done()`, lalu pastikan state kembali ke `idle`.\n4. Panggil transisi invalid seperti `audio_done()` saat idle dan pastikan error validasi muncul.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 13 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "State machine — idle\/listening\/thinking\/speaking\/error",
+    "updated_at" : "2026-05-29T12:06:16Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:06:16Z",
+    "created_at" : "2026-05-29T11:20:59Z",
+    "description" : "Why: History diperlukan untuk multi-turn conversation context dan future reference. What: - persistence\/db.py dengan SQLite di ~\/.verse\/history.db - Schema: conversations(id, started_at, ended_at) + messages(id, conv_id, role, content, tool_calls, created_at) - Fungsi: save_message, load_recent_messages(limit=N), new_conversation - Config: max_history (default 10 messages sebagai LLM context) - Test: save 20 messages, load last 10 Out of scope: - History purge CLI, audio recording storage (default off)",
+    "id" : "verse-cor",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan persistence SQLite untuk conversation history di `~\/.verse\/history.db`, termasuk schema conversations\/messages, `new_conversation`, `save_message`, dan `load_recent_messages(limit=N)` yang mengembalikan pesan terbaru dalam urutan kronologis.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di data layer backend `backend\/verse\/persistence\/db.py` dan test backend.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_persistence_db.py` dan pastikan 2 test passed.\n2. Jalankan Python REPL dengan `poetry run python`.\n3. Buat `ConversationStore(\"\/tmp\/verse-history-test.db\")`, panggil `new_conversation()`, simpan 20 pesan, lalu panggil `load_recent_messages(limit=10)`.\n4. Pastikan output hanya berisi message-10 sampai message-19 dan tetap berurutan dari lama ke baru.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 13 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "SQLite conversation history persistence",
+    "updated_at" : "2026-05-29T12:06:16Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:04:59Z",
+    "created_at" : "2026-05-29T11:20:32Z",
+    "description" : "Why: Perlu bisa record mic dan playback audio sebelum bisa test STT\/TTS. What: - audio\/capture.py: record dengan sounddevice, expose start_recording\/stop_recording -> bytes - audio\/playback.py: play bytes atau stream - Smoke test: record 5 detik lalu play back Out of scope: - VAD, audio level metering untuk bubble (Phase 2)",
+    "id" : "verse-jll",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan modul audio backend untuk capture mic via sounddevice, output WAV bytes, playback WAV bytes, dan playback stream chunk.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di modul backend `backend\/verse\/audio\/` dan test backend.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_audio.py` dan pastikan 3 test passed.\n2. Pastikan macOS sudah memberi izin microphone ke terminal\/app yang dipakai.\n3. Jalankan Python REPL dengan `poetry run python`.\n4. Import `record_for_seconds` dari `verse.audio.capture` dan `play_audio` dari `verse.audio.playback`.\n5. Rekam `audio = record_for_seconds(5)`, lalu jalankan `play_audio(audio)` dan pastikan rekaman 5 detik terdengar kembali dari speaker\/headphone.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 13 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Audio capture + playback module",
+    "updated_at" : "2026-05-29T12:04:59Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-29T12:04:59Z",
+    "created_at" : "2026-05-29T11:20:32Z",
+    "description" : "Why: API keys harus secure di Keychain (bukan plain text) dan config harus bisa dibaca semua modul. What: - config.py: baca ~\/.verse\/config.toml via tomllib - keychain.py: simpan\/baca API keys via library keyring - Default config template di docs\/ - Unit test config load dan key retrieval Out of scope: - Settings UI, config hot-reload",
+    "id" : "verse-u1s",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan: menambahkan loader config TOML dari `~\/.verse\/config.toml`, default config sesuai PRD termasuk `llm.max_history = 10`, template `docs\/config.example.toml`, dan helper macOS Keychain via library keyring.\n\nLokasi UI: tidak ada elemen UI baru atau berubah untuk issue ini; perubahan berada di config\/data security backend `backend\/verse\/config.py`, `backend\/verse\/persistence\/keychain.py`, dan docs template.\n\nPanduan testing manual:\n1. Jalankan `cd backend && poetry run pytest tests\/test_config.py tests\/test_keychain.py` dan pastikan 3 test passed.\n2. Salin nilai dari `docs\/config.example.toml` ke `~\/.verse\/config.toml`, ubah salah satu nilai seperti `llm.max_history`, lalu jalankan `poetry run python` dari backend.\n3. Import `load_config` dari `verse.config`, panggil `load_config()`, dan pastikan nilai config terbaca.\n4. Import `set_api_key`, `get_api_key`, dan `delete_api_key` dari `verse.persistence.keychain`; simpan key dummy, baca kembali, lalu hapus. Verifikasi item muncul\/hilang di Keychain Access bila diperlukan.\n\nQuality gate yang sudah dijalankan: `poetry run pytest` = 13 passed; `npm run build` sukses; `cargo check` sukses.\n\nCatatan git\/push: remote `origin` tidak terkonfigurasi (`git remote -v` kosong), jadi protokol merge\/push ke remote tidak bisa diselesaikan dari workspace ini. Commit lokal implementasi sudah dibuat; push perlu dilakukan setelah remote ditambahkan.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Config loader + macOS Keychain integration",
+    "updated_at" : "2026-05-29T12:04:59Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-29T11:35:46Z",
+    "created_at" : "2026-05-29T11:20:32Z",
+    "description" : "Why: Base structure harus ada sebelum bisa develop modul manapun. What: - Init Python project dengan pyproject.toml + poetry di backend\/ - Init Tauri 2.x + React + TypeScript di frontend\/ - Setup folder structure sesuai PRD section 6 - Verify both compile\/run tanpa error Out of scope: - Implementasi fitur apapun, cuma struktur folder + dependency manager",
+    "id" : "verse-kdg",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Melakukan inisialisasi scaffolding untuk proyek Verse. Perubahan ini murni backend\/frontend skeleton (kerangka dasar) dan konfigurasi dependency manager, sehingga tidak ada visual element baru di UI saat ini.\n\nCara testing manual:\n1. Pindah ke folder 'backend', lalu jalankan unit test python:\n   cd backend && poetry run pytest\n   (Pastikan output menunjukkan 1 test passed)\n2. Pindah ke folder 'frontend', lalu jalankan kompilasi aset React:\n   cd frontend && npm run build\n   (Pastikan kompilasi selesai tanpa error)\n3. Pindah ke folder 'frontend\/src-tauri', lalu jalankan cargo check untuk verifikasi kode Rust\/Tauri shell:\n   cd frontend\/src-tauri && cargo check\n   (Pastikan proses check selesai tanpa error compiler)",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Project scaffolding — Python backend + Tauri frontend shells",
+    "updated_at" : "2026-05-29T11:35:46Z"
+  }
+]

@@ -38,15 +38,33 @@ export interface ErrorMessage {
   recoverable: boolean;
 }
 
+export interface PipelineEventMessage {
+  type: "pipeline_event";
+  stage: string;
+  event: string;
+  [key: string]: unknown;
+}
+
+export interface VADUpdateMessage {
+  type: "vad_update";
+  state: string;
+  probability: number;
+}
+
 export type IncomingMessage =
   | StateChangeMessage
   | AudioLevelMessage
   | TranscriptMessage
   | AssistantTextMessage
   | ToolExecutedMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | PipelineEventMessage
+  | VADUpdateMessage;
 
-export type ManualTriggerAction = "start_listening" | "stop_listening";
+export type ManualTriggerAction =
+  | "start_listening"
+  | "stop_listening"
+  | "deactivate_conversation";
 
 export interface ManualTriggerMessage {
   type: "manual_trigger";
