@@ -201,3 +201,76 @@ def test_cli_subcommands(temp_session_dir, capsys):
     assert "It is 5 PM" in captured
     assert "Input Audio:" in captured
     assert "Output Audio:" in captured
+
+
+@pytest.mark.anyio
+async def test_orchestrator_conversation_mode_logging(temp_session_dir):
+    logger = DebugSessionLogger(base_dir=temp_session_dir)
+
+    stt = AsyncMock()
+    stt.transcribe = AsyncMock(return_value=" Hello World ")
+    llm = AsyncMock()
+    response_mock = MagicMock()
+    response_mock.text = "Hello to you too."
+    response_mock.tool_calls = []
+    llm.chat = AsyncMock(return_value=response_mock)
+    tts = AsyncMock()
+    tts.synthesize = AsyncMock(return_value=b"synthetic_voice_wav")
+    registry = MagicMock()
+    registry.list_definitions.return_value = []
+    state_machine = StateMachine()
+
+    config = AppConfig()
+    recorder = MagicMock()
+    recorder.is_recording = False
+    
+    def start_rec(*args, **kwargs):
+        recorder.is_recording = True
+        
+    recorder.start_recording = MagicMock(side_effect=start_rec)
+    
+    def stop_rec(*args, **kwargs):
+        recorder.is_recording = False
+        return b"fake_wav"
+        
+    recorder.stop_recording = MagicMock(side_effect=stop_rec)
+
+    play_mock = MagicMock()
+
+    orchestrator = Orchestrator(
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        registry=registry,
+        state_machine=state_machine,
+        config=config,
+        recorder=recorder,
+        play=play_mock,
+        debug_logger=logger,
+    )
+
+    # Enable conversation mode
+    orchestrator._conversation_mode_active = True
+    orchestrator._auto_listening = True
+
+    # Start the first turn
+    orchestrator.start_listening(is_auto=True)
+    assert orchestrator._current_turn_id == 1
+
+    orchestrator.state_machine.hotkey_released()
+    orchestrator.recorder.is_recording = False
+
+    # In conversation mode, stop_and_respond handles audio, then tts completion starts auto listening
+    with patch("verse.orchestrator._is_audio_too_short", return_value=False):
+        await orchestrator.handle_audio(b"fake_wav")
+
+    # Check files created in turn_001
+    turn_dir = logger.get_turn_dir(1)
+    assert (turn_dir / "input.wav").exists()
+    assert (turn_dir / "output.wav").exists()
+    assert (turn_dir / "metrics.json").exists()
+    assert (turn_dir / "pipeline_events.jsonl").exists()
+    assert (turn_dir / "llm_transaction.json").exists()
+
+    # The orchestrator should have automatically started the next turn (turn 2)
+    assert orchestrator._current_turn_id == 2

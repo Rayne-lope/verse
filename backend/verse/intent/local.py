@@ -23,6 +23,11 @@ class LocalIntentRouter:
         "vscode": "Visual Studio Code",
         "visual studio code": "Visual Studio Code",
         "code": "Visual Studio Code",
+        "brave": "Brave Browser",
+        "brave browser": "Brave Browser",
+        "chrome": "Google Chrome",
+        "google chrome": "Google Chrome",
+        "safari": "Safari",
     }
 
     def route(self, transcript: str) -> LocalIntentMatch | None:

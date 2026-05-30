@@ -247,6 +247,8 @@ class Orchestrator:
             
         if self._current_latency_metrics:
             self.debug_logger.log_metrics(turn_id, self._current_latency_metrics)
+            
+        self._current_turn_id = None
 
     def start_listening(self, is_auto: bool = False) -> bool:
         if self.recorder is None:
@@ -260,6 +262,8 @@ class Orchestrator:
             self._conversation_mode_active = False
 
         if self.debug_logger is not None:
+            if self._current_turn_id is not None:
+                self._write_current_turn_data()
             self._current_turn_id = self.debug_logger.new_turn()
             self._current_vad_timeline = []
             self._current_pipeline_events = []
@@ -299,6 +303,8 @@ class Orchestrator:
         self, audio: bytes, *, history: list[dict[str, Any]] | None = None
     ) -> str:
         import time
+        turn_id = self._current_turn_id
+        self._input_audio_bytes = audio
 
         try:
             try:
@@ -309,23 +315,25 @@ class Orchestrator:
             transcript = await self._transcribe(audio)
             stt_duration = time.time() - start_stt
             print(f"[Debug] STT took: {stt_duration:.2f}s")
+            
+            if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
+                self._current_latency_metrics["stt_ms"] = int(stt_duration * 1000)
 
             start_llm = time.time()
             reply = await self._respond(transcript, history or [])
             llm_duration = time.time() - start_llm
             print(f"[Debug] LLM took: {llm_duration:.2f}s")
 
+            if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
+                self._current_latency_metrics["llm_ms"] = int(llm_duration * 1000)
+
             start_tts = time.time()
             await self._speak(reply)
             tts_duration = time.time() - start_tts
             print(f"[Debug] TTS took: {tts_duration:.2f}s")
 
-            if self.debug_logger is not None and self._current_turn_id is not None:
-                self._current_latency_metrics.update({
-                    "stt_ms": int(stt_duration * 1000),
-                    "llm_ms": int(llm_duration * 1000),
-                    "tts_ms": int(tts_duration * 1000),
-                })
+            if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
+                self._current_latency_metrics["tts_ms"] = int(tts_duration * 1000)
                 self._write_current_turn_data()
 
             return reply
@@ -337,15 +345,16 @@ class Orchestrator:
                     {"code": "pipeline_failure", "message": str(exc)}
                 )
             self.state_machine.fail(str(exc))
-            if self.debug_logger is not None and self._current_turn_id is not None:
+            if self.debug_logger is not None and turn_id is not None:
                 import traceback
                 self.debug_logger.log_error(
-                    self._current_turn_id,
+                    turn_id,
                     error_type=exc.__class__.__name__,
                     message=str(exc),
                     traceback=traceback.format_exc(),
                 )
-                self._write_current_turn_data()
+                if self._current_turn_id == turn_id:
+                    self._write_current_turn_data()
             raise
 
     async def _transcribe(self, audio: bytes) -> str:
@@ -638,6 +647,8 @@ class Orchestrator:
         return text.strip()
 
     async def _speak(self, text: str) -> None:
+        import time
+        start_tts = time.time()
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -673,6 +684,11 @@ class Orchestrator:
             self.on_pipeline_event("tts", "completed", {})
         if self.state_machine.state is State.SPEAKING:
             self.state_machine.audio_done()
+
+        tts_duration = time.time() - start_tts
+        if self.debug_logger is not None and self._current_turn_id is not None:
+            self._current_latency_metrics["tts_ms"] = int(tts_duration * 1000)
+
         if self.conversation_mode_active:
             self.start_auto_listening()
 

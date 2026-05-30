@@ -131,6 +131,37 @@ class AppConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
+def _save_tools_enabled_to_toml(config_path: Path, new_enabled: list[str]) -> None:
+    try:
+        content = config_path.read_text(encoding="utf-8")
+        lines = content.splitlines()
+        in_tools = False
+        replaced = False
+        
+        import json
+        new_enabled_str = json.dumps(new_enabled)
+        
+        for i, line in enumerate(lines):
+            trimmed = line.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                section_name = trimmed[1:-1].strip()
+                if section_name == "tools":
+                    in_tools = True
+                else:
+                    in_tools = False
+            
+            if in_tools and trimmed.startswith("enabled"):
+                lines[i] = f"enabled = {new_enabled_str}"
+                replaced = True
+                break
+                
+        if replaced:
+            config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to auto-migrate config.toml: {exc}")
+
+
 def load_config(path: str | Path | None = None) -> AppConfig:
     config_path = Path(path).expanduser() if path is not None else DEFAULT_CONFIG_PATH
     if not config_path.exists():
@@ -138,6 +169,17 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 
     with config_path.open("rb") as config_file:
         raw_config = tomllib.load(config_file)
+
+    # Auto-migrate default config path if missing tools
+    if path is None and "tools" in raw_config and isinstance(raw_config["tools"], dict):
+        tools_sec = raw_config["tools"]
+        if "enabled" in tools_sec and isinstance(tools_sec["enabled"], list):
+            enabled_list = list(tools_sec["enabled"])
+            default_tools = ToolsConfig().enabled
+            missing_defaults = [t for t in default_tools if t not in enabled_list]
+            if missing_defaults:
+                tools_sec["enabled"] = enabled_list + missing_defaults
+                _save_tools_enabled_to_toml(config_path, tools_sec["enabled"])
 
     return config_from_mapping(raw_config)
 

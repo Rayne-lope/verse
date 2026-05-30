@@ -100,3 +100,29 @@ local_router_confidence_threshold = 0.9
 
     assert config.intent.local_router_enabled is False
     assert config.intent.local_router_confidence_threshold == 0.9
+
+
+def test_load_config_auto_migrates_default_path(tmp_path, monkeypatch):
+    default_config_path = tmp_path / "config.toml"
+    
+    default_config_path.write_text(
+        """
+[tools]
+enabled = ["play_music", "open_app"]
+""",
+        encoding="utf-8",
+    )
+    
+    import verse.config
+    monkeypatch.setattr(verse.config, "DEFAULT_CONFIG_PATH", default_config_path)
+    
+    config = load_config()
+    
+    assert "create_event" in config.tools.enabled
+    assert "remember" in config.tools.enabled
+    assert "play_music" in config.tools.enabled
+    assert "open_app" in config.tools.enabled
+    
+    new_content = default_config_path.read_text(encoding="utf-8")
+    assert "create_event" in new_content
+    assert "remember" in new_content

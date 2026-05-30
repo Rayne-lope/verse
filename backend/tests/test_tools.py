@@ -339,3 +339,19 @@ def test_reminders_calls_osascript(monkeypatch):
     add_res = reminders.add_reminder("Buy bread", "Whole wheat")
     assert "Buy bread" in add_res
     assert "default list" in add_res
+
+
+def test_open_app_resolves_aliases(monkeypatch):
+    from verse.tools.builtin import system
+    
+    mock_run = MagicMock()
+    monkeypatch.setattr("subprocess.run", mock_run)
+    
+    system.open_app("brave")
+    mock_run.assert_called_with(["open", "-a", "Brave Browser"], check=True)
+    
+    system.open_app("  vs code  ")
+    mock_run.assert_called_with(["open", "-a", "Visual Studio Code"], check=True)
+    
+    system.open_app("Safari")
+    mock_run.assert_called_with(["open", "-a", "Safari"], check=True)
