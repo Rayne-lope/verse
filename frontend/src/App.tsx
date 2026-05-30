@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { Bubble } from "./components/Bubble";
 import "./App.css";
@@ -14,16 +13,16 @@ declare global {
 }
 
 function App() {
-  const { connectionStatus, lastState } = useWebSocket();
+  const { connectionStatus, lastState, send } = useWebSocket();
 
   useEffect(() => {
     if (import.meta.env.DEV) {
       window.__VERSE_WINDOW__ = {
         triggerPress: () => {
-          invoke("mock_hotkey_press").catch(console.error);
+          send({ type: "manual_trigger", action: "start_listening" });
         },
         triggerRelease: () => {
-          invoke("mock_hotkey_release").catch(console.error);
+          send({ type: "manual_trigger", action: "stop_listening" });
         },
       };
     }
@@ -32,7 +31,17 @@ function App() {
         delete window.__VERSE_WINDOW__;
       }
     };
-  }, []);
+  }, [send]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      send({ type: "manual_trigger", action: "deactivate_conversation" });
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [send]);
 
   return (
     <main className="shell-surface" data-tauri-drag-region>

@@ -12,6 +12,7 @@ DEFAULT_CONFIG_PATH = Path("~/.verse/config.toml").expanduser()
 @dataclass(frozen=True)
 class HotkeyConfig:
     trigger: str = "alt+space"
+    conversation_trigger: str = "shift+alt+space"
     mode: str = "push_to_talk"
     conversation_mode: bool = True
 
@@ -74,6 +75,19 @@ class VADConfig:
 
 
 @dataclass(frozen=True)
+class GeminiLiveConfig:
+    model: str = "gemini-2.0-flash-live-001"
+    voice_name: str = "Puck"
+    language_code: str = "en-US"
+
+
+@dataclass(frozen=True)
+class VoiceConfig:
+    engine: str = "classic_pipeline"  # "classic_pipeline" | "gemini_live"
+    gemini_live: GeminiLiveConfig = field(default_factory=GeminiLiveConfig)
+
+
+@dataclass(frozen=True)
 class AppConfig:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     stt: STTConfig = field(default_factory=STTConfig)
@@ -81,6 +95,7 @@ class AppConfig:
     tts: TTSConfig = field(default_factory=TTSConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     vad: VADConfig = field(default_factory=VADConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
@@ -101,10 +116,13 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     tts = raw_config.get("tts", {})
     tools = raw_config.get("tools", {})
     vad = raw_config.get("vad", {})
+    voice_raw = raw_config.get("voice", {})
+    gl_raw = voice_raw.get("gemini_live", {})
 
     return AppConfig(
         hotkey=HotkeyConfig(
             trigger=str(hotkey.get("trigger", HotkeyConfig.trigger)),
+            conversation_trigger=str(hotkey.get("conversation_trigger", HotkeyConfig.conversation_trigger)),
             mode=str(hotkey.get("mode", HotkeyConfig.mode)),
             conversation_mode=bool(hotkey.get("conversation_mode", HotkeyConfig.conversation_mode)),
         ),
@@ -141,5 +159,13 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             max_utterance_ms=int(vad.get("max_utterance_ms", VADConfig.max_utterance_ms)),
             pre_roll_ms=int(vad.get("pre_roll_ms", VADConfig.pre_roll_ms)),
             followup_timeout_s=float(vad.get("followup_timeout_s", VADConfig.followup_timeout_s)),
+        ),
+        voice=VoiceConfig(
+            engine=str(voice_raw.get("engine", VoiceConfig.engine)),
+            gemini_live=GeminiLiveConfig(
+                model=str(gl_raw.get("model", GeminiLiveConfig.model)),
+                voice_name=str(gl_raw.get("voice_name", GeminiLiveConfig.voice_name)),
+                language_code=str(gl_raw.get("language_code", GeminiLiveConfig.language_code)),
+            ),
         ),
     )

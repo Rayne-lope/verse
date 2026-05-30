@@ -36,6 +36,7 @@ class FakeVADStateMachine:
         self.reset_called = 0
         self._sequence = list(sequence or [])
         self.frames_processed = []
+        self.elapsed_ms = 0.0
 
     def reset(self):
         self.reset_called += 1
@@ -67,7 +68,11 @@ class FakeRecorder:
 
 
 class FakeSTT:
+    def __init__(self):
+        self.calls = []
+
     async def transcribe(self, audio, language=None):
+        self.calls.append((audio, language))
         return "fake transcript"
 
 
@@ -240,6 +245,7 @@ async def test_run_vad_loop_timeout_state():
     
     recorder = FakeRecorder()
     machine = StateMachine(initial_state=State.LISTENING)
+    events = []
     
     orch = Orchestrator(
         stt=FakeSTT(),
@@ -251,6 +257,7 @@ async def test_run_vad_loop_timeout_state():
         vad_manager=vad_manager,
         vad_state_machine=vad_state_machine,
     )
+    orch.on_pipeline_event = lambda stage, event, metadata: events.append((stage, event, metadata))
     
     orch._loop = loop
     orch._auto_listening = True
@@ -265,6 +272,7 @@ async def test_run_vad_loop_timeout_state():
     assert recorder.is_recording is False
     assert orch._auto_listening is False
     assert machine.state is State.IDLE
+    assert ("vad", "timeout", {}) in events
 
 
 def test_manual_push_to_talk_bypasses_vad():
@@ -392,4 +400,115 @@ async def test_auto_respond_with_utterance_discards_short_audio_restarts_auto_li
     # Should transition to LISTENING state since auto-listening restarts
     assert machine.state is State.LISTENING
     assert orch._auto_listening is True
+
+
+@pytest.mark.anyio
+async def test_auto_respond_with_valid_utterance_processes_and_restarts_auto_listening():
+    vad_manager = FakeVADManager(available=True)
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING)
+    config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=True),
+        vad=VADConfig(enabled=False),
+    )
+    stt = FakeSTT()
+
+    orch = Orchestrator(
+        stt=stt,
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        config=config,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+        play=lambda audio: None,
+    )
+
+    recorder.is_recording = True
+    speech_frames = [np.ones(512, dtype=np.float32) for _ in range(20)]
+
+    await orch._auto_respond_with_utterance(speech_frames)
+
+    assert len(stt.calls) == 1
+    assert machine.state is State.LISTENING
+    assert recorder.is_recording is True
+    assert orch._auto_listening is True
+
+
+@pytest.mark.anyio
+async def test_auto_respond_with_utterance_surfaces_pipeline_errors():
+    class BrokenSTT:
+        async def transcribe(self, audio, language=None):
+            raise RuntimeError("STT exploded")
+
+    events = []
+    vad_manager = FakeVADManager(available=True)
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING, error_reset_seconds=-1)
+    config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=False),
+        vad=VADConfig(enabled=True),
+    )
+
+    orch = Orchestrator(
+        stt=BrokenSTT(),
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        config=config,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+        play=lambda audio: None,
+    )
+    orch.on_pipeline_event = lambda stage, event, metadata: events.append((stage, event, metadata))
+
+    recorder.is_recording = True
+    speech_frames = [np.ones(512, dtype=np.float32) for _ in range(20)]
+
+    await orch._auto_respond_with_utterance(speech_frames)
+
+    error_events = [event for event in events if event[0] == "error"]
+    assert error_events
+    assert error_events[-1][1] == "recoverable_error"
+    assert "STT exploded" in error_events[-1][2]["message"]
+    assert machine.state is State.ERROR
+
+
+def test_deactivate_conversation():
+    vad_manager = FakeVADManager()
+    vad_state_machine = FakeVADStateMachine()
+    recorder = FakeRecorder()
+    machine = StateMachine(initial_state=State.LISTENING)
+    config = AppConfig(
+        hotkey=HotkeyConfig(conversation_mode=True),
+        vad=VADConfig(enabled=True)
+    )
+
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=FakeLLM(),
+        tts=FakeTTS(),
+        registry=MagicMock(),
+        state_machine=machine,
+        config=config,
+        recorder=recorder,
+        vad_manager=vad_manager,
+        vad_state_machine=vad_state_machine,
+    )
+
+    recorder.is_recording = True
+    orch._auto_listening = True
+
+    orch.deactivate_conversation()
+
+    assert orch._conversation_mode_active is False
+    assert orch._auto_listening is False
+    assert recorder.is_recording is False
+    assert machine.state is State.IDLE
 

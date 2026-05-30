@@ -65,3 +65,25 @@ def test_listening_to_idle_on_audio_done():
     machine.audio_done()
     assert machine.state is State.IDLE
 
+
+def test_state_machine_force_idle():
+    machine = StateMachine()
+    # force_idle from IDLE does nothing
+    assert machine.force_idle() is None
+    assert machine.state is State.IDLE
+
+    # Transition to LISTENING and force to IDLE
+    machine.hotkey_pressed()
+    assert machine.state is State.LISTENING
+    
+    events = []
+    machine.subscribe(events.append)
+    event = machine.force_idle()
+    
+    assert event is not None
+    assert event.previous_state is State.LISTENING
+    assert event.state is State.IDLE
+    assert machine.state is State.IDLE
+    assert len(events) == 1
+
+

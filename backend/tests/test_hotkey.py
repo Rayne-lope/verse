@@ -41,3 +41,23 @@ def test_normalize_key_accepts_pynput_like_objects():
     key = type("Key", (), {"name": "alt_l"})()
 
     assert normalize_key(key) == "alt"
+
+
+def test_hotkey_listener_conversation_toggle():
+    toggled = []
+    listener = HotkeyListener(
+        on_conversation_toggle=lambda: toggled.append(True),
+    )
+
+    # Press shift+alt+space
+    listener._handle_press("shift")
+    listener._handle_press("alt")
+    listener._handle_press("space")
+
+    assert toggled == [True]
+    assert listener._conv_active is True
+
+    # Release space
+    listener._handle_release("space")
+    assert listener._conv_active is False
+

@@ -224,6 +224,8 @@ def test_transcript_callback_fires():
 
 
 def test_conversation_mode_auto_listens_after_speak():
+    from verse.config import AppConfig, VADConfig
+
     machine = StateMachine(initial_state=State.THINKING)
     recorder = FakeRecorder()
     stt = FakeSTT("x")
@@ -237,6 +239,7 @@ def test_conversation_mode_auto_listens_after_speak():
         registry=ToolRegistry(),
         state_machine=machine,
         recorder=recorder,
+        config=AppConfig(vad=VADConfig(enabled=False)),
     )
     
     asyncio.run(orch._speak("hello"))
@@ -355,4 +358,3 @@ def test_clean_markdown_for_tts():
     assert "Kerja: Kirim email ke Rayne." in cleaned
     assert "*" not in cleaned
     assert "**" not in cleaned
-

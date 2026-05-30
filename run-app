@@ -1,0 +1,31 @@
+#!/bin/bash
+
+# Dapatkan absolute path direktori script ini
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+
+echo "🚀 Memulai Verse Voice Assistant..."
+
+# Fungsi cleanup untuk menghentikan proses backend & frontend saat keluar
+cleanup() {
+    echo -e "\n🛑 Menghentikan semua layanan..."
+    kill "$BACKEND_PID" "$TAURI_PID" 2>/dev/null
+    exit 0
+}
+
+# Trap Ctrl+C (SIGINT) dan SIGTERM agar memanggil fungsi cleanup
+trap cleanup SIGINT SIGTERM
+
+# 1. Jalankan Backend (Python asyncio) di background
+echo "⚡ Menjalankan Backend (Poetry)..."
+cd "$DIR/backend" || exit 1
+poetry run python -m verse.main &
+BACKEND_PID=$!
+
+# 2. Jalankan Frontend (Tauri dev server) di background
+echo "⚡ Menjalankan Frontend (Tauri Dev)..."
+cd "$DIR/frontend" || exit 1
+npm run tauri dev &
+TAURI_PID=$!
+
+# Tunggu hingga kedua proses selesai
+wait "$BACKEND_PID" "$TAURI_PID"

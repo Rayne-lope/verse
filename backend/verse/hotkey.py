@@ -25,15 +25,19 @@ class HotkeyListener:
         *,
         on_pressed: HotkeyCallback | None = None,
         on_released: HotkeyCallback | None = None,
+        on_conversation_toggle: HotkeyCallback | None = None,
         state_machine: StateMachine | None = None,
     ) -> None:
         self.config = config or HotkeyConfig()
         self.keys = parse_hotkey(self.config.trigger)
+        self.conv_keys = parse_hotkey(getattr(self.config, "conversation_trigger", "shift+alt+space"))
         self.on_pressed = on_pressed
         self.on_released = on_released
+        self.on_conversation_toggle = on_conversation_toggle
         self.state_machine = state_machine
         self._pressed_keys: set[str] = set()
         self._active = False
+        self._conv_active = False
         self._listener: Any = None
         self._press_started_at: float | None = None
         self._started_at = perf_counter() - 1.0
@@ -60,6 +64,7 @@ class HotkeyListener:
         self._listener.stop()
         self._listener = None
         self._active = False
+        self._conv_active = False
         self._pressed_keys.clear()
 
     def _handle_press(self, key: Any) -> None:
@@ -70,15 +75,23 @@ class HotkeyListener:
             return
 
         self._pressed_keys.add(normalized)
-        if self._active or not self.keys.issubset(self._pressed_keys):
+
+        if self.conv_keys.issubset(self._pressed_keys):
+            if not self._conv_active:
+                self._conv_active = True
+                if self.on_conversation_toggle is not None:
+                    self.on_conversation_toggle()
             return
 
-        self._active = True
-        self._press_started_at = perf_counter()
-        if self.state_machine is not None:
-            self.state_machine.hotkey_pressed()
-        if self.on_pressed is not None:
-            self.on_pressed()
+        if self.keys.issubset(self._pressed_keys):
+            if not self._active:
+                self._active = True
+                self._press_started_at = perf_counter()
+                if self.state_machine is not None:
+                    self.state_machine.hotkey_pressed()
+                if self.on_pressed is not None:
+                    self.on_pressed()
+            return
 
     def _handle_release(self, key: Any) -> None:
         normalized = normalize_key(key)
@@ -87,17 +100,22 @@ class HotkeyListener:
 
         was_active = self._active
         self._pressed_keys.discard(normalized)
+
+        if not self.conv_keys.issubset(self._pressed_keys):
+            self._conv_active = False
+
         if normalized not in self.keys:
             return
 
-        self._active = False
-        if not was_active:
-            return
+        if not self.keys.issubset(self._pressed_keys):
+            self._active = False
+            if not was_active:
+                return
 
-        if self.state_machine is not None:
-            self.state_machine.hotkey_released()
-        if self.on_released is not None:
-            self.on_released()
+            if self.state_machine is not None:
+                self.state_machine.hotkey_released()
+            if self.on_released is not None:
+                self.on_released()
 
 
 def parse_hotkey(trigger: str) -> frozenset[str]:

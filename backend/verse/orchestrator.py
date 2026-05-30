@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Callable
 
 from verse.config import AppConfig
 from verse.llm.base import LLMAdapter
+from verse.state import State
 from verse.state import StateMachine
 from verse.stt.base import STTAdapter
 from verse.tools.registry import ToolRegistry
@@ -18,7 +20,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "or check the time when the user asks for those actions."
 )
 
-PlaybackFn = Callable[[bytes], None]
+logger = logging.getLogger(__name__)
+
+PlaybackFn = Callable[..., None]
 
 
 class Orchestrator:
@@ -88,11 +92,17 @@ class Orchestrator:
         self._vad_task: asyncio.Task | None = None
 
         self._auto_listening = False
+        self._conversation_mode_active: bool | None = None
         self._speech_detected = False
         self._last_speech_time = 0.0
         self._auto_listen_start_real_time = 0.0
         self._loop = None
 
+    @property
+    def conversation_mode_active(self) -> bool:
+        if self._conversation_mode_active is not None:
+            return self._conversation_mode_active
+        return self.config.hotkey.conversation_mode
 
     def start_listening(self, is_auto: bool = False) -> bool:
         if self.recorder is None:
@@ -102,6 +112,7 @@ class Orchestrator:
             return False
         if not is_auto:
             self._auto_listening = False
+            self._conversation_mode_active = None
         self.state_machine.hotkey_pressed()
         self.recorder.start_recording(on_audio_level=self._handle_audio_level)
         return True
@@ -119,7 +130,7 @@ class Orchestrator:
         
         if _is_audio_too_short(audio):
             self.state_machine.audio_done()
-            if self.config.hotkey.conversation_mode:
+            if self.conversation_mode_active:
                 self.start_auto_listening()
             return ""
             
@@ -267,7 +278,7 @@ class Orchestrator:
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "completed", {})
         self.state_machine.audio_done()
-        if self.config.hotkey.conversation_mode:
+        if self.conversation_mode_active:
             self.start_auto_listening()
 
     def start_auto_listening(self) -> None:
@@ -279,6 +290,7 @@ class Orchestrator:
         except RuntimeError:
             self._loop = None
         self._auto_listening = True
+        self._conversation_mode_active = True
         self._speech_detected = False
         self._last_speech_time = 0.0
         self._auto_listen_start_real_time = time.time()
@@ -286,6 +298,7 @@ class Orchestrator:
         success = self.start_listening(is_auto=True)
         if not success:
             self._auto_listening = False
+            self._conversation_mode_active = False
             return
 
         if self.config.vad.enabled and self.vad_manager.is_available:
@@ -326,16 +339,16 @@ class Orchestrator:
     async def _auto_respond(self) -> None:
         try:
             await self.stop_and_respond()
-        except Exception:
-            pass
+        except Exception as exc:
+            self._report_auto_recoverable_error("auto_response_failed", exc)
 
     async def _auto_timeout(self) -> None:
         try:
             if self.recorder and self.recorder.is_recording:
                 self.recorder.stop_recording()
             self.state_machine.audio_done()
-        except Exception:
-            pass
+        except Exception as exc:
+            self._report_auto_recoverable_error("auto_timeout_failed", exc)
 
     def _cancel_vad_task(self) -> None:
         if self._vad_task is not None:
@@ -351,9 +364,7 @@ class Orchestrator:
         from verse.audio.vad import VADState
         import time
         import numpy as np
-        import logging
 
-        logger = logging.getLogger(__name__)
         last_send_time = 0.0
         prev_state = VADState.WAITING_FOR_SPEECH
 
@@ -408,12 +419,14 @@ class Orchestrator:
                 elif state is VADState.TIMEOUT:
                     self._auto_listening = False
                     self._cancel_vad_task()
+                    if self.on_pipeline_event:
+                        self.on_pipeline_event("vad", "timeout", {})
                     await self._auto_timeout()
                     break
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            logger.error(f"Error in _run_vad_loop: {exc}")
+            self._report_auto_recoverable_error("vad_loop_failed", exc)
 
     async def _auto_respond_with_utterance(self, utterance_chunks: list[np.ndarray] | None) -> None:
         try:
@@ -431,14 +444,38 @@ class Orchestrator:
 
             if _is_audio_too_short(audio):
                 self.state_machine.audio_done()
-                if self.config.hotkey.conversation_mode:
+                if self.conversation_mode_active:
                     self.start_auto_listening()
                 return
 
             self.state_machine.hotkey_released()
             await self.handle_audio(audio)
-        except Exception:
-            pass
+        except Exception as exc:
+            self._report_auto_recoverable_error("auto_utterance_failed", exc)
+
+    def _report_auto_recoverable_error(self, code: str, exc: Exception) -> None:
+        message = str(exc) or exc.__class__.__name__
+        logger.exception("%s: %s", code, message)
+        if self.state_machine.state is State.ERROR:
+            return
+        if self.on_pipeline_event:
+            self.on_pipeline_event(
+                "error",
+                "recoverable_error",
+                {"code": code, "message": message},
+            )
+        self.state_machine.fail(message)
+
+    def deactivate_conversation(self) -> None:
+        self._conversation_mode_active = False
+        self._auto_listening = False
+        self._cancel_vad_task()
+        if self.recorder and self.recorder.is_recording:
+            try:
+                self.recorder.stop_recording()
+            except Exception:
+                pass
+        self.state_machine.force_idle()
 
 
 def _is_audio_too_short(audio: bytes) -> bool:
@@ -480,5 +517,5 @@ def build_orchestrator(config: AppConfig | None = None) -> Orchestrator:
         state_machine=StateMachine(),
         config=config,
         recorder=AudioRecorder(),
-        play=lambda audio: play_audio(audio),
+        play=play_audio,
     )
