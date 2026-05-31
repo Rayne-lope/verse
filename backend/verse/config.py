@@ -70,6 +70,10 @@ class ToolsConfig:
             "set_dnd",
             "set_brightness",
             "get_brightness",
+            "browser_navigate",
+            "browser_click",
+            "browser_input",
+            "browser_close",
         ]
     )
     spotify_client_id: str = ""

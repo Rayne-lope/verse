@@ -71,6 +71,10 @@ class LocalIntentRouter:
         if match is not None:
             return match
 
+        match = self._route_browser(text)
+        if match is not None:
+            return match
+
         return self._route_play_music(text)
 
     def _route_control(self, text: str) -> LocalIntentMatch | None:
@@ -307,6 +311,92 @@ class LocalIntentRouter:
                 tool_name="get_brightness",
             )
             
+        return None
+
+    def _route_browser(self, text: str) -> LocalIntentMatch | None:
+        import urllib.parse
+
+        # 1. Close browser pattern
+        # "tutup browser", "close browser", "tutup browser session"
+        if re.fullmatch(r"(tutup|close|matikan|akhiri)( session)? browser", text):
+            return LocalIntentMatch(
+                intent="browser.close",
+                confidence=0.96,
+                tool_name="browser_close",
+            )
+
+        # 2. Google search pattern
+        # "cari harga emas di google", "search apple stock on google", "google cuaca hari ini"
+        search_match = re.fullmatch(
+            r"(cari|search) (?P<query>.+) (di|on) google", text
+        )
+        if not search_match:
+            search_match = re.fullmatch(r"google (?P<query>.+)", text)
+
+        if search_match:
+            query = search_match.group("query").strip()
+            encoded_query = urllib.parse.quote(query)
+            return LocalIntentMatch(
+                intent="browser.search",
+                confidence=0.95,
+                tool_name="browser_navigate",
+                arguments={"url": f"https://www.google.com/search?q={encoded_query}"},
+            )
+
+        # 3. Open website/navigation pattern
+        # "buka website tokopedia", "pergi ke website google.com", "kunjungi wikipedia.org", "buka shopee"
+        nav_match = re.fullmatch(
+            r"(buka website|buka|pergi ke website|pergi ke|kunjungi) (?P<site>.+)", text
+        )
+        if nav_match:
+            site = nav_match.group("site").strip()
+            # If it's a known app like "brave browser", let open_app handle it. So check if it's in APP_ALIASES.
+            if site in self._APP_ALIASES:
+                return None
+                
+            # If the site ends with a common TLD or contains a dot, or is a known website name
+            known_sites = {
+                "tokopedia", "shopee", "google", "wikipedia", "youtube", 
+                "facebook", "instagram", "twitter", "github", "reddit", 
+                "detik", "kompas", "gmail", "yahoo"
+            }
+            
+            # Since _normalize strips dots to spaces, "wikipedia.org" becomes "wikipedia org"
+            tlds = {"com", "org", "net", "id", "edu", "gov", "co", "io"}
+            tokens = site.split()
+            has_tld = len(tokens) > 1 and tokens[-1] in tlds
+            
+            is_url = (
+                "." in site 
+                or site.startswith("http") 
+                or site.startswith("www")
+                or site.lower() in known_sites
+                or has_tld
+            )
+            
+            if is_url:
+                # Reconstruct URL if it has a TLD separated by space due to normalization
+                if has_tld:
+                    url = ".".join(tokens[:-1]) + "." + tokens[-1]
+                else:
+                    url = site
+                    
+                # If it's just a name without a dot, e.g. "tokopedia", map it to .com or .org
+                if not ("." in url or url.startswith("http")):
+                    if url.lower() in ("tokopedia", "shopee", "detik", "kompas"):
+                        url = f"{url.lower()}.com"
+                    elif url.lower() in ("wikipedia",):
+                        url = f"{url.lower()}.org"
+                    else:
+                        url = f"{url.lower()}.com"
+                
+                return LocalIntentMatch(
+                    intent="browser.navigate",
+                    confidence=0.95,
+                    tool_name="browser_navigate",
+                    arguments={"url": url},
+                )
+
         return None
 
 

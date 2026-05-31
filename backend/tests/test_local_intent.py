@@ -132,3 +132,34 @@ def test_local_intent_routes_settings_controls():
     bright_get = router.route("cek kecerahan")
     assert bright_get is not None
     assert bright_get.tool_name == "get_brightness"
+
+
+def test_local_intent_routes_browser():
+    router = LocalIntentRouter()
+
+    # 1. Close browser
+    close_b = router.route("tutup browser")
+    assert close_b is not None
+    assert close_b.tool_name == "browser_close"
+
+    # 2. Google Search
+    search_g = router.route("cari harga emas di google")
+    assert search_g is not None
+    assert search_g.tool_name == "browser_navigate"
+    assert "https://www.google.com/search?q=harga%20emas" in search_g.arguments["url"]
+
+    search_g2 = router.route("google apple stock price")
+    assert search_g2 is not None
+    assert search_g2.tool_name == "browser_navigate"
+    assert "https://www.google.com/search?q=apple%20stock%20price" in search_g2.arguments["url"]
+
+    # 3. Direct Navigation
+    nav_site = router.route("buka website tokopedia")
+    assert nav_site is not None
+    assert nav_site.tool_name == "browser_navigate"
+    assert nav_site.arguments == {"url": "tokopedia.com"}
+
+    nav_site_dot = router.route("kunjungi wikipedia.org")
+    assert nav_site_dot is not None
+    assert nav_site_dot.tool_name == "browser_navigate"
+    assert nav_site_dot.arguments == {"url": "wikipedia.org"}

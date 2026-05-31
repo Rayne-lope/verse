@@ -79,6 +79,7 @@ def _parse_arguments(raw_arguments: Any) -> dict[str, Any]:
 
 def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
     from verse.tools.builtin import (
+        browser,
         calendar,
         contacts,
         memory,
@@ -480,6 +481,61 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             description="Get the current macOS screen brightness level (0-100).",
             parameters={"type": "object", "properties": {}},
             handler=system.get_brightness,
+        ),
+        "browser_navigate": Tool(
+            name="browser_navigate",
+            description="Open a URL in the browser and read the page's visible text content.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to navigate to, e.g. 'wikipedia.org' or 'google.com'.",
+                    }
+                },
+                "required": ["url"],
+            },
+            handler=browser.browser_navigate,
+        ),
+        "browser_click": Tool(
+            name="browser_click",
+            description="Click an element (button, link, input) on the active page using a selector.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "The CSS selector or text value of the element to click, e.g. 'button.submit' or 'a.next'.",
+                    }
+                },
+                "required": ["selector"],
+            },
+            handler=browser.browser_click,
+        ),
+        "browser_input": Tool(
+            name="browser_input",
+            description="Type text into an input field on the active page using a selector.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "selector": {
+                        "type": "string",
+                        "description": "The CSS selector of the input field, e.g. 'input#search'.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The text content to enter into the field.",
+                    }
+                },
+                "required": ["selector", "text"],
+            },
+            handler=browser.browser_input,
+        ),
+        "browser_close": Tool(
+            name="browser_close",
+            description="Close the active browser session to clean up system processes.",
+            parameters={"type": "object", "properties": {}},
+            handler=browser.browser_close,
         ),
     }
 

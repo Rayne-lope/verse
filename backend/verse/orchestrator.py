@@ -8,8 +8,7 @@ from typing import Any, Callable
 from verse.config import AppConfig
 from verse.intent import LocalIntentMatch, LocalIntentRouter
 from verse.llm.base import LLMAdapter
-from verse.state import State
-from verse.state import StateMachine
+from verse.state import State, StateMachine, StateChangedEvent
 from verse.stt.base import STTAdapter
 from verse.tools.registry import ToolRegistry
 from verse.tts.base import TTSAdapter
@@ -196,6 +195,8 @@ class Orchestrator:
             except Exception as exc:
                 logger.error(f"Failed to init conversation memory: {exc}")
                 self.store = None
+
+        self._state_machine_unsubscribe = self.state_machine.subscribe(self._on_state_changed)
 
     @property
     def conversation_mode_active(self) -> bool:
@@ -1147,6 +1148,14 @@ class Orchestrator:
             except Exception:
                 pass
         self.state_machine.force_idle()
+
+    def _on_state_changed(self, event: StateChangedEvent) -> None:
+        if event.state == State.IDLE:
+            try:
+                from verse.tools.builtin.browser import browser_close
+                browser_close()
+            except Exception as exc:
+                logger.error(f"Failed to close browser on IDLE transition: {exc}")
 
 
 def _is_audio_too_short(audio: bytes) -> bool:

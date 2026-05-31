@@ -3,6 +3,7 @@ import socket
 
 import pytest
 
+from verse.config import AppConfig
 from verse.main import build_client_message_handler
 from verse.state import State, StateMachine, StateTrigger
 from verse.ws import protocol
@@ -122,7 +123,7 @@ def test_manual_trigger_message_handler_calls_orchestrator():
 
     async def run() -> FakeOrchestrator:
         orchestrator = FakeOrchestrator()
-        handler = build_client_message_handler(orchestrator)
+        handler = build_client_message_handler(orchestrator, [AppConfig()])
         await handler(server, client, {"type": "manual_trigger", "action": "start_listening"})
         await handler(server, client, {"type": "manual_trigger", "action": "stop_listening"})
         return orchestrator
@@ -146,7 +147,7 @@ def test_interrupt_message_handler_calls_barge_in():
 
     async def run() -> FakeOrchestrator:
         orchestrator = FakeOrchestrator()
-        handler = build_client_message_handler(orchestrator)
+        handler = build_client_message_handler(orchestrator, [AppConfig()])
         await handler(server, client, {"type": "interrupt"})
         return orchestrator
 
