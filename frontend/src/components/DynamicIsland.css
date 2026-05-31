@@ -155,8 +155,11 @@
   width: 100%;
 }
 
-.island-content[data-split="true"] .island-trailing .island-transcript-mask {
+.island-content[data-split="true"] .island-leading .island-transcript-mask {
   width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
   mask-image: linear-gradient(to right,
     transparent 0,
     black 8px,
@@ -169,6 +172,16 @@
     black calc(100% - 8px),
     transparent 100%
   );
+}
+
+.island-brand-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(78% calc(var(--island-chroma) + 0.04) var(--island-hue) / 0.85);
+  filter: drop-shadow(0 0 4px oklch(78% calc(var(--island-chroma) + 0.06) var(--island-hue) / 0.4));
+  margin-left: 4px;
+  flex-shrink: 0;
 }
 
 .island-content--compact-empty {
@@ -303,7 +316,7 @@
 .island-content--expanded {
   flex-direction: column;
   align-items: stretch;
-  padding: 14px 16px 12px;
+  padding: 14px 16px 16px;
   gap: 10px;
 }
 
@@ -385,9 +398,10 @@
 .island-expanded-controls {
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  gap: 8px;
-  padding-top: 6px;
+  justify-content: center;
+  gap: 18px;
+  padding-top: 8px;
+  padding-bottom: 2px;
   border-top: 1px solid oklch(100% 0 0 / 0.04);
 }
 

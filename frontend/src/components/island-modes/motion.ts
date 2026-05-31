@@ -40,54 +40,64 @@ interface NotchHint {
  *  Active modes grow outward symmetrically from that anchor. */
 export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibration = DEFAULT_ISLAND_CALIBRATION): ShellSizes {
   const hasNotch = Boolean(notch?.hasNotch);
+  const notchHeight = hasNotch ? (notch?.height ?? 0) : 0;
 
   // Base dimensions adjusted by calibration scales
-  const baseWidth = notch?.hasNotch ? notch.width : 140;
-  const baseHeight = notch?.hasNotch ? notch.height : 34;
-
+  const baseWidth = hasNotch ? (notch?.width ?? 190) : 140;
   const compactW = baseWidth * calibration.widthScale;
-  const compactH = baseHeight * calibration.heightScale + (hasNotch ? 2 : 0);
+
+  // Desired vertical content heights
+  const hCompact = hasNotch ? notchHeight : 34;
+  const hListening = 36;
+  const hSpeaking = 36;
+  const hExpanded = 220;
+  const hError = 36;
+
+  const listeningH = (notchHeight + hListening) * calibration.heightScale;
+  const speakingH = (notchHeight + hSpeaking) * calibration.heightScale;
+  const expandedH = (notchHeight + hExpanded) * calibration.heightScale;
+  const errorH = (notchHeight + hError) * calibration.heightScale;
 
   return {
     compact: {
       width: compactW,
-      height: compactH,
-      borderTopLeftRadius: hasNotch ? 0 : compactH / 2,
-      borderTopRightRadius: hasNotch ? 0 : compactH / 2,
-      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : compactH / 2,
-      borderBottomRightRadius: hasNotch ? calibration.bottomRadius : compactH / 2,
+      height: hCompact * calibration.heightScale,
+      borderTopLeftRadius: hasNotch ? 0 : hCompact / 2,
+      borderTopRightRadius: hasNotch ? 0 : hCompact / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : hCompact / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius : hCompact / 2,
     },
     listening: {
-      width: compactW + 96,
-      height: compactH + 8,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 8) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 8) / 2,
-      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 8) / 2,
-      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 8) / 2,
+      width: compactW + 110,
+      height: listeningH,
+      borderTopLeftRadius: hasNotch ? 0 : hListening / 2,
+      borderTopRightRadius: hasNotch ? 0 : hListening / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : hListening / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : hListening / 2,
     },
     speaking: {
-      width: compactW + 140,
-      height: compactH + 12,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 12) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 12) / 2,
-      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 4 : (compactH + 12) / 2,
-      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 4 : (compactH + 12) / 2,
+      width: compactW + 160,
+      height: speakingH,
+      borderTopLeftRadius: hasNotch ? 0 : hSpeaking / 2,
+      borderTopRightRadius: hasNotch ? 0 : hSpeaking / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 4 : hSpeaking / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 4 : hSpeaking / 2,
     },
     expanded: {
       width: 380,
-      height: 210,
+      height: expandedH,
       borderTopLeftRadius: hasNotch ? 0 : 28,
       borderTopRightRadius: hasNotch ? 0 : 28,
       borderBottomLeftRadius: 28,
       borderBottomRightRadius: 28,
     },
     error: {
-      width: compactW + 70,
-      height: compactH + 4,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 4) / 2,
-      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 4) / 2,
+      width: compactW + 80,
+      height: errorH,
+      borderTopLeftRadius: hasNotch ? 0 : hError / 2,
+      borderTopRightRadius: hasNotch ? 0 : hError / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : hError / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : hError / 2,
     },
   };
 }
