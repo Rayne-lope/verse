@@ -42,15 +42,16 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
   }, []);
 
   const notch = useNotchGeometry();
-  const notchHeight = notch?.hasNotch ? notch.height : 0;
+  const hasNotch = Boolean(notch);
+  const notchHeight = hasNotch ? (notch?.height && notch.height > 0 ? notch.height : 32) : 0;
   const shellSizes = useMemo(() => getShellSizes(notch, calibration), [notch, calibration]);
   const shellSize = shellSizes[mode];
 
   const notchSafeWidth = useMemo(() => {
-    return notch?.hasNotch
-      ? notch.width * calibration.widthScale + calibration.notchSafePadding * 2
+    return hasNotch
+      ? (notch?.width && notch.width > 0 ? notch.width : 190) * calibration.widthScale + calibration.notchSafePadding * 2
       : 0;
-  }, [notch, calibration]);
+  }, [notch, hasNotch, calibration]);
 
   // Clear optimistic flag once backend confirms a non-idle state
   useEffect(() => {
@@ -123,7 +124,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           layoutId="island-shell"
           className="island-shell"
           data-mode={mode}
-          data-has-notch={notch?.hasNotch ? "true" : "false"}
+          data-has-notch={hasNotch ? "true" : "false"}
           data-clickable={connected ? "" : undefined}
           onClick={handleShellClick}
           onContextMenu={handleContextMenu}
@@ -148,7 +149,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           <div
             className="island-glow"
             style={{
-              opacity: (mode === "listening" || mode === "speaking") && !notch?.hasNotch
+              opacity: (mode === "listening" || mode === "speaking") && !hasNotch
                 ? 0.35 + Math.min(audioLevel, 1) * 0.5
                 : 0,
             }}
@@ -157,17 +158,17 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
 
           <AnimatePresence mode="wait" initial={false}>
             {mode === "compact" && (
-              <CompactMode state={state} connected={connected} hasNotch={notch?.hasNotch ?? false} />
+              <CompactMode state={state} connected={connected} hasNotch={hasNotch} />
             )}
             {mode === "listening" && (
-              <ListeningMode audioLevel={audioLevel} hasNotch={notch?.hasNotch ?? false} />
+              <ListeningMode audioLevel={audioLevel} hasNotch={hasNotch} />
             )}
             {mode === "speaking" && (
               <SpeakingMode
                 audioLevel={audioLevel}
                 thinking={state === "thinking"}
                 preparing={state === "preparing_audio"}
-                hasNotch={notch?.hasNotch ?? false}
+                hasNotch={hasNotch}
               />
             )}
             {mode === "expanded" && (

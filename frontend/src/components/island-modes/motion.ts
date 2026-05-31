@@ -39,11 +39,11 @@ interface NotchHint {
  *  notch dimensions exactly so the pill visually merges with the hardware notch.
  *  Active modes grow outward symmetrically from that anchor. */
 export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibration = DEFAULT_ISLAND_CALIBRATION): ShellSizes {
-  const hasNotch = Boolean(notch?.hasNotch);
-  const notchHeight = hasNotch ? (notch?.height ?? 0) : 0;
+  const hasNotch = Boolean(notch);
+  const notchHeight = hasNotch ? (notch?.height && notch.height > 0 ? notch.height : 32) : 0;
 
   // Base dimensions adjusted by calibration scales
-  const baseWidth = hasNotch ? (notch?.width ?? 190) : 140;
+  const baseWidth = hasNotch ? (notch?.width && notch.width > 0 ? notch.width : 190) : 140;
   const compactW = baseWidth * calibration.widthScale;
 
   // Desired vertical content heights
