@@ -4,17 +4,19 @@ import asyncio
 import json
 import logging
 import threading
-from typing import Any, Callable
+from typing import Any, Callable, AsyncIterator
 
 from verse.config import AppConfig
-from verse.intent import LocalIntentMatch, LocalIntentRouter, IntentCategory, fast_intent_classifier
+from verse.intent import LocalIntentMatch, LocalIntentRouter, IntentCategory, fast_intent_classifier, TurnContext
+from verse.tts import TextSegmenter
 from verse.tools import ToolSelector
+from verse.audio.streaming_player import StreamingPlayer
 from verse.latency import LatencyTracker
 from verse.llm.base import LLMAdapter
 from verse.state import State, StateMachine, StateChangedEvent
 from verse.stt.base import STTAdapter
 from verse.tools.registry import ToolRegistry
-from verse.tts.base import TTSAdapter
+from verse.tts.base import TTSAdapter, RealtimeTTSAdapter
 from verse.persistence.debug_logger import DebugSessionLogger
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -78,6 +80,18 @@ def _parse_fact_list(text: str) -> list[str]:
     return [item.strip() for item in data if isinstance(item, str) and item.strip()]
 
 
+CANNED_ACKNOWLEDGEMENTS = {
+    "web_search": "Bentar, aku cari dulu.",
+    "get_weather": "Bentar, aku cek cuaca dulu.",
+    "read_calendar": "Bentar, aku cek kalender dulu.",
+    "create_event": "Bentar, aku buat acaranya dulu.",
+    "send_message": "Bentar, aku kirim pesannya dulu.",
+    "run_shortcut": "Bentar, aku jalankan shortcut dulu.",
+    "add_reminder": "Bentar, aku tambahkan pengingat dulu.",
+    "complete_reminder": "Bentar, aku selesaikan pengingat dulu.",
+}
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -124,6 +138,7 @@ class Orchestrator:
         )
         self.local_intent_router = LocalIntentRouter()
         self.tool_selector = ToolSelector(self.config.tools.enabled or self.registry.names())
+        self._current_turn: TurnContext | None = None
 
         self.pre_vad_audio_hook = pre_vad_audio_hook
         self.post_recording_audio_hook = post_recording_audio_hook
@@ -368,6 +383,7 @@ class Orchestrator:
             self._latency_metadata(audio_ms=_audio_duration_ms(audio))
 
         turn_id = self._current_turn_id
+        self._current_turn = TurnContext(id=turn_id or "turn_default")
         self._input_audio_bytes = audio
 
         try:
@@ -503,6 +519,14 @@ class Orchestrator:
                 }
             )
             for tool_call in response.tool_calls:
+                name = tool_call.get("function", {}).get("name", "")
+                if name in CANNED_ACKNOWLEDGEMENTS and self._current_turn is not None:
+                    if not getattr(self._current_turn, "canned_ack_spoken", False):
+                        self._current_turn.canned_ack_spoken = True
+                        ack_text = CANNED_ACKNOWLEDGEMENTS[name]
+                        await self.speak_text_immediately(self._current_turn, ack_text)
+                        self.state_machine.force_thinking()
+
                 import time
                 start_tool = time.time()
                 result = self._run_tool(tool_call)
@@ -859,54 +883,280 @@ class Orchestrator:
         
         return text.strip()
 
-    async def _speak(self, text: str) -> None:
-        import time
-        start_tts = time.time()
-        try:
-            self._loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
+    async def speak_text_immediately(
+        self,
+        turn: TurnContext,
+        text: str,
+    ) -> None:
+        if turn.is_cancelled():
+            return
 
-        self.state_machine.tts_ready()
+        self._barge_in_requested = False
+        self._barge_in_handled = False
+
+        if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
+            # Fallback to non-realtime play
+            clean_text = self._clean_markdown_for_tts(text)
+            if not clean_text:
+                return
+
+            if self.state_machine.state == State.THINKING:
+                self.state_machine.tts_ready()
+            if self.on_pipeline_event:
+                self.on_pipeline_event("tts", "started", {})
+
+            self._latency_mark("tts_request_start", chars=len(clean_text))
+            audio = await self.tts.synthesize(clean_text)
+            interrupted = False
+            if audio:
+                self._latency_mark("tts_first_audio", bytes=len(audio))
+                self._output_audio_bytes = audio
+                if self._play is not None:
+                    self.state_machine.playback_started()
+                    self._latency_mark("playback_start")
+                    stop_event = threading.Event()
+                    self._playback_stop_event = stop_event
+                    try:
+                        await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
+                    finally:
+                        if self._playback_stop_event is stop_event:
+                            self._playback_stop_event = None
+                    interrupted = stop_event.is_set()
+                    self._latency_mark("playback_done", interrupted=interrupted)
+
+            if interrupted:
+                self._finish_barge_in()
+                return
+
+            if self.on_pipeline_event:
+                self.on_pipeline_event("tts", "completed", {})
+            if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                self.state_machine.audio_done()
+            return
+
+        player = StreamingPlayer(on_audio_level=self.on_audio_level)
+        turn.playback = player
+
+        if self.state_machine.state == State.THINKING:
+            self.state_machine.tts_ready()
+
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "started", {})
 
         stop_event = threading.Event()
         self._playback_stop_event = stop_event
+
+        playback_started = False
+
+        try:
+            clean_text = self._clean_markdown_for_tts(text)
+            self._latency_mark("tts_request_start", chars=len(clean_text))
+            async for pcm_chunk in self.tts.stream_pcm(clean_text):
+                if turn.is_cancelled() or stop_event.is_set():
+                    break
+                
+                if self._output_audio_bytes is None:
+                    self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
+
+                await player.enqueue(pcm_chunk)
+                
+                if self._output_audio_bytes is None:
+                    self._output_audio_bytes = pcm_chunk
+                else:
+                    self._output_audio_bytes += pcm_chunk
+
+                if not playback_started:
+                    playback_started = True
+                    if self.state_machine.state == State.PREPARING_AUDIO:
+                        self.state_machine.playback_started()
+                    self._latency_mark("playback_start")
+
+            if not (turn.is_cancelled() or stop_event.is_set()):
+                player.signal_end()
+                await player.wait_drained()
+
+        except Exception as exc:
+            logger.exception("Error in speak_text_immediately")
+            raise
+        finally:
+            if self._playback_stop_event is stop_event:
+                self._playback_stop_event = None
+            player.close()
+            if turn.playback is player:
+                turn.playback = None
+
+            if turn.is_cancelled() or stop_event.is_set():
+                self._finish_barge_in()
+            else:
+                if self.on_pipeline_event:
+                    self.on_pipeline_event("tts", "completed", {})
+                if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                    self.state_machine.audio_done()
+
+    async def speak_streaming(
+        self,
+        turn: TurnContext,
+        text_stream: AsyncIterator[str],
+    ) -> None:
+        if turn.is_cancelled():
+            return
+
         self._barge_in_requested = False
         self._barge_in_handled = False
 
-        try:
-            if text:
-                clean_text = self._clean_markdown_for_tts(text)
+        if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
+            # Fallback to non-realtime play
+            full_text = ""
+            async for delta in text_stream:
+                full_text += delta
+            clean_text = self._clean_markdown_for_tts(full_text)
+            if clean_text:
+                if self.state_machine.state == State.THINKING:
+                    self.state_machine.tts_ready()
+                if self.on_pipeline_event:
+                    self.on_pipeline_event("tts", "started", {})
+
                 self._latency_mark("tts_request_start", chars=len(clean_text))
                 audio = await self.tts.synthesize(clean_text)
+                interrupted = False
                 if audio:
                     self._latency_mark("tts_first_audio", bytes=len(audio))
                     self._output_audio_bytes = audio
                     if self._play is not None:
                         self.state_machine.playback_started()
                         self._latency_mark("playback_start")
-                        await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
-                        self._latency_mark("playback_done", interrupted=stop_event.is_set())
-            interrupted = stop_event.is_set()
+                        stop_event = threading.Event()
+                        self._playback_stop_event = stop_event
+                        try:
+                            await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
+                        finally:
+                            if self._playback_stop_event is stop_event:
+                                self._playback_stop_event = None
+                        interrupted = stop_event.is_set()
+                        self._latency_mark("playback_done", interrupted=interrupted)
+
+                if interrupted:
+                    self._finish_barge_in()
+                    return
+
+                if self.on_pipeline_event:
+                    self.on_pipeline_event("tts", "completed", {})
+                if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                    self.state_machine.audio_done()
+            return
+
+        player = StreamingPlayer(on_audio_level=self.on_audio_level)
+        turn.playback = player
+
+        if self.state_machine.state == State.THINKING:
+            self.state_machine.tts_ready()
+
+        if self.on_pipeline_event:
+            self.on_pipeline_event("tts", "started", {})
+
+        stop_event = threading.Event()
+        self._playback_stop_event = stop_event
+
+        segmenter = TextSegmenter()
+        playback_started = False
+
+        try:
+            async for delta in text_stream:
+                if turn.is_cancelled() or stop_event.is_set():
+                    break
+
+                for segment in segmenter.push(delta):
+                    if turn.is_cancelled() or stop_event.is_set():
+                        break
+                    if not segment.strip():
+                        continue
+
+                    clean_segment = self._clean_markdown_for_tts(segment)
+                    if not clean_segment.strip():
+                        continue
+
+                    async for pcm_chunk in self.tts.stream_pcm(clean_segment):
+                        if turn.is_cancelled() or stop_event.is_set():
+                            break
+                        
+                        if self._output_audio_bytes is None:
+                            self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
+
+                        await player.enqueue(pcm_chunk)
+                        
+                        if self._output_audio_bytes is None:
+                            self._output_audio_bytes = pcm_chunk
+                        else:
+                            self._output_audio_bytes += pcm_chunk
+
+                        if not playback_started:
+                            playback_started = True
+                            if self.state_machine.state == State.PREPARING_AUDIO:
+                                self.state_machine.playback_started()
+                            self._latency_mark("playback_start")
+
+            # Flush any remaining segments
+            if not (turn.is_cancelled() or stop_event.is_set()):
+                for segment in segmenter.flush():
+                    if turn.is_cancelled() or stop_event.is_set():
+                        break
+                    if not segment.strip():
+                        continue
+
+                    clean_segment = self._clean_markdown_for_tts(segment)
+                    if not clean_segment.strip():
+                        continue
+
+                    async for pcm_chunk in self.tts.stream_pcm(clean_segment):
+                        if turn.is_cancelled() or stop_event.is_set():
+                            break
+                        
+                        if self._output_audio_bytes is None:
+                            self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
+
+                        await player.enqueue(pcm_chunk)
+                        
+                        if self._output_audio_bytes is None:
+                            self._output_audio_bytes = pcm_chunk
+                        else:
+                            self._output_audio_bytes += pcm_chunk
+
+                        if not playback_started:
+                            playback_started = True
+                            if self.state_machine.state == State.PREPARING_AUDIO:
+                                self.state_machine.playback_started()
+                            self._latency_mark("playback_start")
+
+            if not (turn.is_cancelled() or stop_event.is_set()):
+                player.signal_end()
+                await player.wait_drained()
+
+        except Exception as exc:
+            logger.exception("Error in speak_streaming")
+            raise
         finally:
             if self._playback_stop_event is stop_event:
                 self._playback_stop_event = None
+            player.close()
+            if turn.playback is player:
+                turn.playback = None
 
-        if interrupted:
-            self._finish_barge_in()
-            return
+            if turn.is_cancelled() or stop_event.is_set():
+                self._finish_barge_in()
+            else:
+                if self.on_pipeline_event:
+                    self.on_pipeline_event("tts", "completed", {})
+                if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                    self.state_machine.audio_done()
 
-        if self.on_pipeline_event:
-            self.on_pipeline_event("tts", "completed", {})
-        if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-            self.state_machine.audio_done()
+    async def _speak(self, text: str) -> None:
+        if self._current_turn is None:
+            self._current_turn = TurnContext(id=self._current_turn_id or "turn_default")
+        
+        async def text_stream():
+            yield text
 
-        tts_duration = time.time() - start_tts
-        if self.debug_logger is not None and self._current_turn_id is not None:
-            self._current_latency_metrics["tts_ms"] = int(tts_duration * 1000)
-
+        await self.speak_streaming(self._current_turn, text_stream())
         if self.conversation_mode_active:
             self.start_auto_listening()
 
@@ -935,6 +1185,9 @@ class Orchestrator:
         self._barge_in_requested = True
         if self._playback_stop_event is not None:
             self._playback_stop_event.set()
+
+        if self._current_turn is not None:
+            self._current_turn.cancel()
 
         loop = self._loop
         if loop is not None and loop.is_running():

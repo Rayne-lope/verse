@@ -155,6 +155,24 @@ class StateMachine:
             subscriber(event)
         return event
 
+    def force_thinking(self) -> StateChangedEvent | None:
+        with self._lock:
+            if self._state == State.THINKING:
+                return None
+            previous_state = self._state
+            self._state = State.THINKING
+            self._cancel_error_timer()
+            event = StateChangedEvent(
+                previous_state=previous_state,
+                state=State.THINKING,
+                trigger=StateTrigger.HOTKEY_RELEASE,
+                metadata={},
+            )
+            subscribers = tuple(self._subscribers)
+        for subscriber in subscribers:
+            subscriber(event)
+        return event
+
     def close(self) -> None:
         with self._lock:
             self._cancel_error_timer()
