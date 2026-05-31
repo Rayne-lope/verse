@@ -1,0 +1,219 @@
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: oklch(8% 0.02 255 / 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 250ms ease;
+  z-index: 200;
+}
+
+.onboarding-overlay[data-open="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.onboarding-panel {
+  width: 380px;
+  background: oklch(16% 0.025 255 / 0.88);
+  backdrop-filter: blur(32px) saturate(1.6);
+  -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  border: 1px solid oklch(100% 0 0 / 0.1);
+  border-radius: 22px;
+  box-shadow:
+    0 32px 80px oklch(4% 0.02 255 / 0.75),
+    inset 0 1px 0 oklch(100% 0 0 / 0.1);
+  overflow: hidden;
+  transform: scale(0.94) translateY(12px);
+  transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.onboarding-overlay[data-open="true"] .onboarding-panel {
+  transform: scale(1) translateY(0);
+}
+
+/* Step viewport */
+.onboarding-viewport {
+  overflow: hidden;
+}
+
+.onboarding-track {
+  display: flex;
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.onboarding-step {
+  min-width: 100%;
+  padding: 32px 28px 24px;
+  box-sizing: border-box;
+}
+
+/* Step content */
+.onboarding-icon {
+  font-size: 32px;
+  margin-bottom: 14px;
+  display: block;
+}
+
+.onboarding-step-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: oklch(92% 0.04 255);
+  margin: 0 0 8px;
+  line-height: 1.3;
+}
+
+.onboarding-step-desc {
+  font-size: 13px;
+  color: oklch(62% 0.01 255);
+  line-height: 1.6;
+  margin: 0 0 20px;
+}
+
+/* Input */
+.onboarding-input-wrap {
+  position: relative;
+  margin-bottom: 6px;
+}
+
+.onboarding-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: oklch(100% 0 0 / 0.06);
+  border: 1px solid oklch(100% 0 0 / 0.12);
+  border-radius: 10px;
+  color: oklch(88% 0.02 255);
+  font-size: 13px;
+  padding: 10px 40px 10px 14px;
+  outline: none;
+  transition: border-color 150ms ease;
+  font-family: inherit;
+}
+
+.onboarding-input:focus {
+  border-color: oklch(65% 0.14 255 / 0.7);
+}
+
+.onboarding-input-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: oklch(50% 0 0);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+  transition: color 150ms ease;
+}
+
+.onboarding-input-toggle:hover {
+  color: oklch(70% 0 0);
+}
+
+.onboarding-input-hint {
+  font-size: 11px;
+  color: oklch(45% 0 0);
+  margin: 0 0 18px;
+  line-height: 1.4;
+}
+
+/* Footer buttons */
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.onboarding-btn-skip {
+  background: none;
+  border: none;
+  color: oklch(48% 0 0);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 6px 2px;
+  font-family: inherit;
+  transition: color 150ms ease;
+}
+
+.onboarding-btn-skip:hover {
+  color: oklch(65% 0 0);
+}
+
+.onboarding-btn-next {
+  background: oklch(55% 0.16 255 / 0.85);
+  border: 1px solid oklch(65% 0.16 255 / 0.3);
+  border-radius: 10px;
+  color: oklch(96% 0.04 255);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 20px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms ease, transform 100ms ease;
+}
+
+.onboarding-btn-next:hover {
+  background: oklch(60% 0.16 255 / 0.9);
+}
+
+.onboarding-btn-next:active {
+  transform: scale(0.97);
+}
+
+.onboarding-btn-next:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Done step */
+.onboarding-done-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: oklch(50% 0.12 145 / 0.2);
+  border: 1px solid oklch(55% 0.12 145 / 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+/* Progress dots */
+.onboarding-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 0 18px;
+  border-top: 1px solid oklch(100% 0 0 / 0.06);
+}
+
+.onboarding-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(100% 0 0 / 0.12);
+  transition: background 200ms ease, transform 200ms ease;
+}
+
+.onboarding-dot[data-active="true"] {
+  background: oklch(65% 0.14 255 / 0.8);
+  transform: scale(1.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-panel,
+  .onboarding-overlay,
+  .onboarding-track {
+    transition: none;
+  }
+}

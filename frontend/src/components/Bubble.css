@@ -108,7 +108,7 @@
 }
 
 /* Shared full-cover layer helper */
-.orb > div {
+.orb > div:not(.orb__zzz) {
   position: absolute;
   inset: 0;
   border-radius: 50%;
@@ -257,14 +257,14 @@
 }
 
 .eye {
-  width: 14px;
-  height: 22px;
-  border-radius: 7px;
+  width: 12px;
+  height: 18px;
+  border-radius: 6px;
   background: oklch(100% 0 0 / 0.96);
   box-shadow:
     0 0 6px oklch(100% 0 0 / 0.6),
     inset 0 1px 2px oklch(80% 0.04 var(--orb-hue) / 0.5);
-  transition: transform 90ms ease-in;
+  transition: transform 90ms ease-in, height 400ms ease, border-radius 400ms ease;
   transform-origin: center;
 }
 
@@ -274,12 +274,12 @@
 
 /* Per-state eye expressions (#4) — shape only; transform stays owned by blink */
 .orb[data-state="listening"] .eye {
-  height: 25px;
-  width: 13px;
+  height: 22px;
+  width: 11px;
 }
 .orb[data-state="speaking"] .eye {
-  height: 16px;
-  border-radius: 7px 7px 9px 9px;
+  height: 13px;
+  border-radius: 6px 6px 8px 8px;
 }
 .orb[data-state="thinking"] .eyes {
   animation: eye-think 2.2s ease-in-out infinite;
@@ -289,8 +289,8 @@
   transform: translateY(3px);
 }
 .orb[data-state="error"] .eye {
-  height: 9px;
-  border-radius: 5px;
+  height: 7px;
+  border-radius: 4px;
 }
 
 @keyframes eye-think {
@@ -419,6 +419,113 @@
   transition: opacity 500ms ease;
 }
 
+/* ── Sleep mode ─────────────────────────────────────────────
+   Activates after 1 min idle with no mouse movement.
+   Eyes half-close, orb slows, Zzz float up. */
+
+.orb[data-sleep] {
+  --orb-breathe-speed: 14s;
+  --orb-chroma: 0.04;
+}
+
+.orb[data-sleep] .eyes {
+  animation: none;
+  transform: translate(0, -3px);
+}
+
+.orb[data-sleep] .eye {
+  height: 7px;
+  border-radius: 6px 6px 3px 3px;
+}
+
+/* Suppress sphere-mode visuals during sleep — eyes stay squinted */
+.orb[data-sleep][data-sphere] .orb__sphere-eye {
+  opacity: 0;
+}
+.orb[data-sleep][data-sphere] .orb__sphere-sclera {
+  opacity: 0;
+}
+.orb[data-sleep][data-sphere] .eyes {
+  opacity: 1;
+}
+.orb[data-sleep][data-sphere] .orb__iridescence {
+  opacity: 0.42;
+  transition: opacity 500ms ease;
+}
+.orb[data-sleep][data-sphere] .orb__iridescence2 {
+  opacity: 0.26;
+  transition: opacity 500ms ease;
+}
+
+/* ── Zzz sleep bubbles ────────────────────────────────────── */
+
+.orb__zzz {
+  position: absolute;
+  inset: auto;
+  border-radius: 0;
+  pointer-events: none;
+  z-index: 8;
+  opacity: 0;
+  transition: opacity 800ms ease;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: 800;
+  line-height: 1;
+  width: 28px;
+  height: 44px;
+  top: -4px;
+  right: 2px;
+}
+
+.orb[data-sleep] .orb__zzz {
+  opacity: 1;
+}
+
+.orb__zzz span {
+  position: absolute;
+  display: block;
+  opacity: 0;
+  color: oklch(78% 0.08 var(--orb-hue) / 0.5);
+  text-shadow: 0 0 4px oklch(85% 0.06 var(--orb-hue) / 0.2);
+}
+
+.orb[data-sleep] .orb__zzz span:nth-child(1) {
+  font-size: 10px;
+  bottom: 4px;
+  left: 0;
+  animation: zzz-float 3.2s ease-out infinite;
+}
+
+.orb[data-sleep] .orb__zzz span:nth-child(2) {
+  font-size: 13px;
+  bottom: 16px;
+  left: 8px;
+  animation: zzz-float 3.2s ease-out 1.1s infinite;
+}
+
+.orb[data-sleep] .orb__zzz span:nth-child(3) {
+  font-size: 17px;
+  bottom: 30px;
+  left: 15px;
+  animation: zzz-float 3.2s ease-out 2.1s infinite;
+}
+
+@keyframes zzz-float {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.7);
+  }
+  12% {
+    opacity: 0.55;
+  }
+  55% {
+    opacity: 0.3;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-10px) scale(1.1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orb,
   .orb__iridescence,
@@ -465,5 +572,17 @@
   }
   .eyes {
     translate: none;
+  }
+  .orb__zzz,
+  .orb__zzz span {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  .orb[data-sleep] .eye {
+    height: 18px;
+    border-radius: 6px;
+  }
+  .orb[data-sleep] .eyes {
+    transform: translate(0, -6px);
   }
 }

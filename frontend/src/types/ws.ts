@@ -51,6 +51,39 @@ export interface VADUpdateMessage {
   probability: number;
 }
 
+export interface VerseConfig {
+  tts: { provider: string; voice_id: string; speed: number };
+  stt: { language: string };
+  llm: { provider: string; model: string; temperature: number; max_history: number };
+  hotkey: { trigger: string };
+  memory: { enabled: boolean; max_facts: number };
+}
+
+export interface ApiKeyStatus {
+  groq: boolean;
+  deepseek: boolean;
+  brave: boolean;
+  spotify: boolean;
+}
+
+export interface ConfigDataMessage {
+  type: "config_data";
+  config: VerseConfig;
+  api_keys: ApiKeyStatus;
+}
+
+export interface ConfigUpdatedMessage {
+  type: "config_updated";
+  success: boolean;
+  error?: string;
+}
+
+export interface ApiKeySetMessage {
+  type: "api_key_set";
+  key_name: string;
+  success: boolean;
+}
+
 export type IncomingMessage =
   | StateChangeMessage
   | AudioLevelMessage
@@ -59,7 +92,10 @@ export type IncomingMessage =
   | ToolExecutedMessage
   | ErrorMessage
   | PipelineEventMessage
-  | VADUpdateMessage;
+  | VADUpdateMessage
+  | ConfigDataMessage
+  | ConfigUpdatedMessage
+  | ApiKeySetMessage;
 
 export type ManualTriggerAction =
   | "start_listening"
@@ -75,6 +111,28 @@ export interface InterruptMessage {
   type: "interrupt";
 }
 
-export type OutgoingMessage = ManualTriggerMessage | InterruptMessage;
+export interface GetConfigMessage {
+  type: "get_config";
+}
+
+export interface UpdateConfigMessage {
+  type: "update_config";
+  section: string;
+  key: string;
+  value: string | number | boolean;
+}
+
+export interface SetApiKeyMessage {
+  type: "set_api_key";
+  key_name: string;
+  value: string;
+}
+
+export type OutgoingMessage =
+  | ManualTriggerMessage
+  | InterruptMessage
+  | GetConfigMessage
+  | UpdateConfigMessage
+  | SetApiKeyMessage;
 
 export type ConnectionStatus = "connecting" | "open" | "closed";

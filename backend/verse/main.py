@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from verse.config import AppConfig, load_config
+from verse.config import AppConfig, load_config, update_config_key
 from verse.hotkey import HotkeyListener
 from verse.orchestrator import build_orchestrator
 from verse.ws.protocol import (
@@ -19,7 +19,12 @@ from verse.ws.server import WebSocketServer
 logger = logging.getLogger(__name__)
 
 
-def build_client_message_handler(engine):
+def _get_api_keys_status() -> dict[str, bool]:
+    from verse.persistence.keychain import get_api_key
+    return {k: get_api_key(k) is not None for k in ("groq", "deepseek", "brave", "spotify")}
+
+
+def build_client_message_handler(engine, config_holder: list[AppConfig]):
     async def handle_client_message(
         _server: WebSocketServer,
         _client,
@@ -30,6 +35,40 @@ def build_client_message_handler(engine):
         if msg_type == "interrupt":
             if hasattr(engine, "request_barge_in"):
                 engine.request_barge_in()
+            return
+
+        if msg_type == "get_config":
+            from verse.ws.protocol import config_data_message
+            _server.enqueue(config_data_message(config_holder[0], _get_api_keys_status()))
+            return
+
+        if msg_type == "update_config":
+            from verse.ws.protocol import config_data_message, config_updated_message
+            section = message.get("section", "")
+            key = message.get("key", "")
+            value = message.get("value")
+            try:
+                new_cfg = update_config_key(section, key, value)
+                config_holder[0] = new_cfg
+                _server.enqueue(config_updated_message(success=True))
+                _server.enqueue(config_data_message(new_cfg, _get_api_keys_status()))
+            except Exception as exc:
+                logger.exception("update_config failed for %r.%r", section, key)
+                _server.enqueue(config_updated_message(success=False, error=str(exc)))
+            return
+
+        if msg_type == "set_api_key":
+            from verse.persistence.keychain import set_api_key
+            from verse.ws.protocol import api_key_set_message, config_data_message
+            key_name = message.get("key_name", "")
+            value = message.get("value", "")
+            try:
+                set_api_key(key_name, value)
+                _server.enqueue(api_key_set_message(key_name, success=True))
+                _server.enqueue(config_data_message(config_holder[0], _get_api_keys_status()))
+            except Exception as exc:
+                logger.exception("set_api_key failed for %r", key_name)
+                _server.enqueue(api_key_set_message(key_name, success=False))
             return
 
         if msg_type != "manual_trigger":
@@ -90,10 +129,13 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
     """Start WS server, select engine, wire callbacks, with Gemini fallback."""
     await ws_server.start()
 
+    config_holder: list[AppConfig] = [config]
+    ws_server._config = config
+
     engine, is_gemini = _build_engine(config, debug_logger=debug_logger)
     ws_server.attach_state_machine(engine.state_machine)
     _wire_callbacks(engine, ws_server)
-    ws_server.on_client_message = build_client_message_handler(engine)
+    ws_server.on_client_message = build_client_message_handler(engine, config_holder)
 
     if is_gemini:
         try:
@@ -111,7 +153,7 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
             engine, _ = _build_engine(config, force_classic=True, debug_logger=debug_logger)
             ws_server.attach_state_machine(engine.state_machine)
             _wire_callbacks(engine, ws_server)
-            ws_server.on_client_message = build_client_message_handler(engine)
+            ws_server.on_client_message = build_client_message_handler(engine, config_holder)
 
     return engine
 

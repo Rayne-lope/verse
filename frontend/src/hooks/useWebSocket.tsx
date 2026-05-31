@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 import type {
+  ApiKeyStatus,
   ConnectionStatus,
   IncomingMessage,
   OutgoingMessage,
+  VerseConfig,
   VerseState,
 } from "../types/ws";
 
@@ -16,6 +18,9 @@ export interface WebSocketContextValue {
   audioLevel: number;
   transcript: string;
   assistantText: string;
+  config: VerseConfig | null;
+  apiKeys: ApiKeyStatus | null;
+  onboardingNeeded: boolean;
   send: (message: OutgoingMessage) => void;
 }
 
@@ -34,6 +39,8 @@ export function WebSocketProvider({
   const [audioLevel, setAudioLevel] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
+  const [config, setConfig] = useState<VerseConfig | null>(null);
+  const [apiKeys, setApiKeys] = useState<ApiKeyStatus | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(INITIAL_BACKOFF_MS);
@@ -79,6 +86,13 @@ export function WebSocketProvider({
         break;
       case "error":
         setLastState("error");
+        break;
+      case "config_data":
+        setConfig(message.config);
+        setApiKeys(message.api_keys);
+        break;
+      case "config_updated":
+      case "api_key_set":
         break;
       case "pipeline_event":
       case "vad_update":
@@ -142,6 +156,11 @@ export function WebSocketProvider({
     }
   }, []);
 
+  const dismissed = typeof localStorage !== "undefined"
+    ? localStorage.getItem("verse.onboarded") === "dismissed"
+    : false;
+  const onboardingNeeded = !dismissed && apiKeys !== null && (!apiKeys.groq || !apiKeys.deepseek);
+
   const value = React.useMemo(
     () => ({
       connectionStatus,
@@ -149,9 +168,12 @@ export function WebSocketProvider({
       audioLevel,
       transcript,
       assistantText,
+      config,
+      apiKeys,
+      onboardingNeeded,
       send,
     }),
-    [connectionStatus, lastState, audioLevel, transcript, assistantText, send]
+    [connectionStatus, lastState, audioLevel, transcript, assistantText, config, apiKeys, onboardingNeeded, send]
   );
 
   return (

@@ -35,6 +35,7 @@ class WebSocketServer:
         self._state_machine: StateMachine | None = None
         self._server: Server | None = None
         self._consumer: asyncio.Task | None = None
+        self._config: Any | None = None
 
     @property
     def client_count(self) -> int:
@@ -105,6 +106,11 @@ class WebSocketServer:
                         {"type": "state_change", "state": str(self._state_machine.state)}
                     )
                 )
+            if self._config is not None:
+                from verse.persistence.keychain import get_api_key
+                from verse.ws.protocol import config_data_message
+                api_keys = {k: get_api_key(k) is not None for k in ("groq", "deepseek", "brave", "spotify")}
+                await client.send(json.dumps(config_data_message(self._config, api_keys)))
             async for raw in client:
                 if self._on_client_message is None:
                     continue

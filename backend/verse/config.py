@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import os
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 import tomllib
@@ -167,6 +168,69 @@ def _save_tools_enabled_to_toml(config_path: Path, new_enabled: list[str]) -> No
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning(f"Failed to auto-migrate config.toml: {exc}")
+
+
+def _toml_value(v: Any) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        s = repr(v)
+        if "." not in s and "e" not in s.lower():
+            s += ".0"
+        return s
+    if isinstance(v, str):
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(v, list):
+        items = ", ".join(_toml_value(i) for i in v)
+        return f"[{items}]"
+    raise TypeError(f"Cannot serialize {type(v).__name__} to TOML")
+
+
+def _write_section(name: str, data: dict[str, Any], out: list[str]) -> None:
+    out.append(f"[{name}]")
+    for k, v in data.items():
+        if not isinstance(v, dict):
+            out.append(f"{k} = {_toml_value(v)}")
+    out.append("")
+    for k, v in data.items():
+        if isinstance(v, dict):
+            _write_section(f"{name}.{k}", v, out)
+
+
+def save_config(config: AppConfig, path: Path | None = None) -> None:
+    """Serialize AppConfig back to TOML and write atomically."""
+    config_path = Path(path).expanduser() if path is not None else DEFAULT_CONFIG_PATH
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    raw = asdict(config)
+    lines: list[str] = []
+    for section, data in raw.items():
+        if isinstance(data, dict):
+            _write_section(section, data, lines)
+    content = "\n".join(lines)
+    tmp = config_path.with_suffix(".toml.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, config_path)
+
+
+def update_config_key(section: str, key: str, value: Any, path: Path | None = None) -> AppConfig:
+    """Mutate one config key, persist to disk, return new AppConfig."""
+    config_path = Path(path).expanduser() if path is not None else DEFAULT_CONFIG_PATH
+    current = load_config(config_path)
+    raw = asdict(current)
+    if section not in raw:
+        raise ValueError(f"Unknown config section: {section!r}")
+    sec = raw[section]
+    if not isinstance(sec, dict):
+        raise ValueError(f"Section {section!r} is not a mapping")
+    if key not in sec:
+        raise ValueError(f"Unknown key {key!r} in section {section!r}")
+    sec[key] = value
+    new_config = config_from_mapping(raw)
+    save_config(new_config, config_path)
+    return new_config
 
 
 def load_config(path: str | Path | None = None) -> AppConfig:
