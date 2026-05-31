@@ -136,6 +136,60 @@ def test_manual_trigger_message_handler_calls_orchestrator():
     assert orchestrator.stopped == 1
 
 
+def test_manual_trigger_toggle_conversation_starts_auto_when_idle():
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.state_machine = StateMachine(initial_state=State.IDLE)
+            self.auto_started = 0
+            self.deactivated = 0
+
+        def start_auto_listening(self) -> None:
+            self.auto_started += 1
+
+        def deactivate_conversation(self) -> None:
+            self.deactivated += 1
+
+    async def run() -> FakeOrchestrator:
+        orchestrator = FakeOrchestrator()
+        handler = build_client_message_handler(orchestrator, [AppConfig()])
+        await handler(server, client, {"type": "manual_trigger", "action": "toggle_conversation"})
+        return orchestrator
+
+    server = WebSocketServer()
+    client = FakeClient()
+    orchestrator = asyncio.run(run())
+
+    assert orchestrator.auto_started == 1
+    assert orchestrator.deactivated == 0
+
+
+def test_manual_trigger_toggle_conversation_deactivates_when_busy():
+    class FakeOrchestrator:
+        def __init__(self) -> None:
+            self.state_machine = StateMachine(initial_state=State.LISTENING)
+            self.auto_started = 0
+            self.deactivated = 0
+
+        def start_auto_listening(self) -> None:
+            self.auto_started += 1
+
+        def deactivate_conversation(self) -> None:
+            self.deactivated += 1
+
+    async def run() -> FakeOrchestrator:
+        orchestrator = FakeOrchestrator()
+        handler = build_client_message_handler(orchestrator, [AppConfig()])
+        await handler(server, client, {"type": "manual_trigger", "action": "toggle_conversation"})
+        return orchestrator
+
+    server = WebSocketServer()
+    client = FakeClient()
+    orchestrator = asyncio.run(run())
+
+    assert orchestrator.auto_started == 0
+    assert orchestrator.deactivated == 1
+
+
 def test_interrupt_message_handler_calls_barge_in():
     class FakeOrchestrator:
         def __init__(self) -> None:

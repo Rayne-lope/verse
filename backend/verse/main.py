@@ -80,6 +80,14 @@ def build_client_message_handler(engine, config_holder: list[AppConfig]):
                 engine.start_listening()
             elif action == "stop_listening":
                 await engine.stop_and_respond()
+            elif action == "toggle_conversation":
+                from verse.state import State
+
+                if engine.state_machine.state is State.IDLE:
+                    if hasattr(engine, "start_auto_listening"):
+                        engine.start_auto_listening()
+                elif hasattr(engine, "deactivate_conversation"):
+                    engine.deactivate_conversation()
             elif action == "deactivate_conversation":
                 if hasattr(engine, "deactivate_conversation"):
                     engine.deactivate_conversation()

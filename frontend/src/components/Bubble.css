@@ -45,6 +45,15 @@
   animation: orb-breathe var(--orb-breathe-speed) ease-in-out infinite;
 }
 
+.orb[data-clickable] {
+  cursor: pointer;
+}
+
+.orb[data-clickable]:focus-visible {
+  outline: 2px solid oklch(82% 0.16 195 / 0.78);
+  outline-offset: 10px;
+}
+
 /* Per-state theming & motion (#4) — color follows --orb-hue + --orb-chroma,
    and each state gets its own movement signature so it reads at a glance. */
 .orb[data-state="idle"] {
@@ -54,6 +63,11 @@
 .orb[data-state="listening"] {
   --orb-hue: 195;   /* cyan, attentive */
   --orb-chroma: 0.17;
+}
+.orb[data-state="idle"][data-activation="listening"] {
+  --orb-hue: 195;
+  --orb-chroma: 0.17;
+  animation: orb-listening-activate 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .orb[data-state="thinking"] {
   --orb-hue: 300;   /* violet, processing */
@@ -72,6 +86,10 @@
   animation:
     orb-aura-spin 6s linear infinite,
     orb-aura-breathe 2.4s ease-in-out infinite;
+}
+.orb[data-state="idle"][data-activation="listening"] .orb__aura {
+  opacity: 0.95;
+  animation: orb-aura-bloom 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 /* thinking: a small specular point orbits → reads as "working". */
 .orb[data-state="thinking"] .orb__highlight {
@@ -314,6 +332,12 @@
   50% { transform: translateZ(0) scale(1.025); }
 }
 
+@keyframes orb-listening-activate {
+  0% { scale: 1; }
+  64% { scale: 1.1; }
+  100% { scale: 1.045; }
+}
+
 @keyframes orb-shimmer {
   to { transform: rotate(360deg); }
 }
@@ -338,6 +362,12 @@
 @keyframes orb-aura-breathe {
   0%, 100% { scale: 1; opacity: 0.85; }
   50%      { scale: 1.07; opacity: 1; }
+}
+
+@keyframes orb-aura-bloom {
+  0%   { scale: 0.88; opacity: 0; }
+  70%  { scale: 1.08; opacity: 1; }
+  100% { scale: 1; opacity: 0.95; }
 }
 
 /* thinking: specular highlight orbits the surface */
@@ -536,19 +566,23 @@
   .orb[data-state="error"],
   .orb[data-state="thinking"] .eyes,
   .orb[data-state="listening"] .orb__aura,
+  .orb[data-state="idle"][data-activation="listening"],
+  .orb[data-state="idle"][data-activation="listening"] .orb__aura,
   .orb[data-state="thinking"] .orb__highlight,
   .orb[data-state="speaking"] .orb__body {
     animation: none;
   }
 
   /* Keep the listening halo visible (static rainbow) even without motion. */
-  .orb[data-state="listening"] .orb__aura {
+  .orb[data-state="listening"] .orb__aura,
+  .orb[data-state="idle"][data-activation="listening"] .orb__aura {
     opacity: 0.95;
   }
 
   /* Don't pump the orb/glow/eyes off the audio signal when motion is reduced. */
   .orb[data-state="listening"],
-  .orb[data-state="speaking"] {
+  .orb[data-state="speaking"],
+  .orb[data-state="idle"][data-activation="listening"] {
     scale: 1;
   }
   .orb[data-state="listening"] .orb__glow,

@@ -100,6 +100,7 @@ export type IncomingMessage =
 export type ManualTriggerAction =
   | "start_listening"
   | "stop_listening"
+  | "toggle_conversation"
   | "deactivate_conversation";
 
 export interface ManualTriggerMessage {
