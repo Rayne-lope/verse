@@ -19,7 +19,10 @@ export type IslandKind = "compact" | "listening" | "speaking" | "expanded" | "er
 export interface ShellSize {
   width: number;
   height: number;
-  borderRadius: number;
+  borderTopLeftRadius: number;
+  borderTopRightRadius: number;
+  borderBottomLeftRadius: number;
+  borderBottomRightRadius: number;
 }
 
 export type ShellSizes = Record<IslandKind, ShellSize>;
@@ -36,32 +39,48 @@ interface NotchHint {
 export function getShellSizes(notch: NotchHint | null): ShellSizes {
   const compactW = notch?.hasNotch ? notch.width : 140;
   const compactH = notch?.hasNotch ? notch.height : 34;
+  const hasNotch = Boolean(notch?.hasNotch);
 
   return {
     compact: {
       width: compactW,
       height: compactH,
-      borderRadius: compactH / 2,
+      borderTopLeftRadius: hasNotch ? 0 : compactH / 2,
+      borderTopRightRadius: hasNotch ? 0 : compactH / 2,
+      borderBottomLeftRadius: hasNotch ? 12 : compactH / 2,
+      borderBottomRightRadius: hasNotch ? 12 : compactH / 2,
     },
     listening: {
       width: Math.max(280, compactW + 100),
       height: compactH + 4,
-      borderRadius: (compactH + 4) / 2,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderBottomLeftRadius: (compactH + 4) / 2,
+      borderBottomRightRadius: (compactH + 4) / 2,
     },
     speaking: {
       width: Math.max(380, compactW + 200),
       height: compactH + 12,
-      borderRadius: (compactH + 12) / 2,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 12) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 12) / 2,
+      borderBottomLeftRadius: (compactH + 12) / 2,
+      borderBottomRightRadius: (compactH + 12) / 2,
     },
     expanded: {
       width: 380,
       height: 210,
-      borderRadius: 28,
+      borderTopLeftRadius: hasNotch ? 0 : 28,
+      borderTopRightRadius: hasNotch ? 0 : 28,
+      borderBottomLeftRadius: 28,
+      borderBottomRightRadius: 28,
     },
     error: {
       width: Math.max(240, compactW + 70),
       height: compactH + 4,
-      borderRadius: (compactH + 4) / 2,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderBottomLeftRadius: (compactH + 4) / 2,
+      borderBottomRightRadius: (compactH + 4) / 2,
     },
   };
 }

@@ -113,7 +113,10 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           animate={{
             width: shellSize.width,
             height: shellSize.height,
-            borderRadius: shellSize.borderRadius,
+            borderTopLeftRadius: shellSize.borderTopLeftRadius,
+            borderTopRightRadius: shellSize.borderTopRightRadius,
+            borderBottomLeftRadius: shellSize.borderBottomLeftRadius,
+            borderBottomRightRadius: shellSize.borderBottomRightRadius,
           }}
           transition={ISLAND_SPRING}
           style={{
