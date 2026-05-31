@@ -57,26 +57,26 @@ export async function setFullscreen(fullscreen: boolean, widgetWidth: number = 6
   }
 }
 
-/** Position the window at the top-center of the active monitor (Dynamic Island style). */
-export async function positionTopCenter(width: number): Promise<void> {
+/** Position the window at the top-center of the active monitor (Dynamic Island style).
+ *  Uses logical units throughout to avoid Retina/scale-factor mismatches. */
+export async function positionTopCenter(widthLogical: number): Promise<void> {
   try {
     const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
-    const { PhysicalPosition } = await import("@tauri-apps/api/dpi");
+    const { LogicalPosition } = await import("@tauri-apps/api/dpi");
     const win = getCurrentWindow();
     const monitor = await currentMonitor();
-    if (monitor) {
-      const scaleFactor = monitor.scaleFactor;
-      const monitorWidth = monitor.size.width;
-      const monitorX = monitor.position.x;
-      const monitorY = monitor.position.y;
+    if (!monitor) return;
 
-      const widthPx = width * scaleFactor;
-      const x = monitorX + (monitorWidth - widthPx) / 2;
-      // Sit flush with top of the screen — the pill itself anchors to top inside the container
-      const y = monitorY;
+    const scale = monitor.scaleFactor || 1;
+    // monitor.size and monitor.position are PHYSICAL; convert to logical for setPosition
+    const monitorLogicalW = monitor.size.width / scale;
+    const monitorLogicalX = monitor.position.x / scale;
+    const monitorLogicalY = monitor.position.y / scale;
 
-      await win.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
-    }
+    const x = monitorLogicalX + (monitorLogicalW - widthLogical) / 2;
+    const y = monitorLogicalY; // flush with top of screen
+
+    await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
   } catch {
     // browser preview or non-Tauri env — ignore
   }
