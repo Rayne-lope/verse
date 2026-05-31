@@ -88,7 +88,7 @@
 .island-shell[data-has-notch="true"][data-mode="listening"],
 .island-shell[data-has-notch="true"][data-mode="speaking"],
 .island-shell[data-has-notch="true"][data-mode="error"] {
-  --shell-bg: #1d1d1e;
+  --shell-bg: #1D1D1F;
   background: var(--shell-bg);
   border-color: transparent;
   box-shadow: none;
@@ -96,7 +96,7 @@
 }
 
 .island-shell[data-mode="compact"] {
-  --shell-bg: #1d1d1e;
+  --shell-bg: #1D1D1F;
   background: var(--shell-bg);
   border-color: transparent;
   box-shadow: none;
