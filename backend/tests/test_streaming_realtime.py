@@ -3,7 +3,7 @@ import time
 import numpy as np
 import pytest
 import sounddevice as sd
-from unittest.mock import AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock, patch
 
 from verse.tts.segmenter import TextSegmenter
 from verse.tts.base import RealtimeTTSAdapter
@@ -120,7 +120,9 @@ async def test_edge_tts_adapter_stream_pcm(monkeypatch):
     
     # Mock asyncio.create_subprocess_exec to mock ffmpeg
     mock_proc = AsyncMock()
-    mock_proc.stdin = AsyncMock()
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdin.drain = AsyncMock()
+    mock_proc.stdin.wait_closed = AsyncMock()
     mock_proc.stdout = AsyncMock()
     mock_proc.stdout.read = AsyncMock(side_effect=[b"pcm_chunk_1", b"pcm_chunk_2", b""])
     mock_proc.returncode = 0
