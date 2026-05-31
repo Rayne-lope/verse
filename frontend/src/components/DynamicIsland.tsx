@@ -164,7 +164,6 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
             )}
             {mode === "speaking" && (
               <SpeakingMode
-                transcript={assistantText || transcript}
                 audioLevel={audioLevel}
                 thinking={state === "thinking"}
                 preparing={state === "preparing_audio"}

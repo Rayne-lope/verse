@@ -48,10 +48,10 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
 
   // Desired vertical content heights
   const hCompact = hasNotch ? notchHeight : 34;
-  const hListening = 36;
-  const hSpeaking = 36;
+  const hListening = 22;
+  const hSpeaking = 22;
   const hExpanded = 220;
-  const hError = 36;
+  const hError = 22;
 
   const listeningH = (notchHeight + hListening) * calibration.heightScale;
   const speakingH = (notchHeight + hSpeaking) * calibration.heightScale;
@@ -68,7 +68,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
       borderBottomRightRadius: hasNotch ? calibration.bottomRadius : hCompact / 2,
     },
     listening: {
-      width: compactW + 110,
+      width: compactW + 180,
       height: listeningH,
       borderTopLeftRadius: hasNotch ? calibration.bottomRadius + 2 : hListening / 2,
       borderTopRightRadius: hasNotch ? calibration.bottomRadius + 2 : hListening / 2,
@@ -76,7 +76,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
       borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : hListening / 2,
     },
     speaking: {
-      width: compactW + 160,
+      width: compactW + 240,
       height: speakingH,
       borderTopLeftRadius: hasNotch ? calibration.bottomRadius + 4 : hSpeaking / 2,
       borderTopRightRadius: hasNotch ? calibration.bottomRadius + 4 : hSpeaking / 2,
@@ -92,7 +92,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
       borderBottomRightRadius: 28,
     },
     error: {
-      width: compactW + 80,
+      width: compactW + 120,
       height: errorH,
       borderTopLeftRadius: hasNotch ? calibration.bottomRadius + 2 : hError / 2,
       borderTopRightRadius: hasNotch ? calibration.bottomRadius + 2 : hError / 2,

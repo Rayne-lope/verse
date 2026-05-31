@@ -6,7 +6,7 @@ import { getIslandCalibration, setIslandCalibration } from "../utils/calibration
 import "./SettingsPanel.css";
 
 type Section = "API Keys" | "Voice" | "STT" | "LLM" | "Hotkeys" | "Always-On" | "Memory" | "Calibration";
-const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Always-On", "Memory", "Calibration"];
+const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Always-On", "Memory"];
 
 interface Props {
   open: boolean;

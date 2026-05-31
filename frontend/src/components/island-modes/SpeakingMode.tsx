@@ -4,7 +4,6 @@ import { contentVariants } from "./motion";
 import { Waveform } from "./Waveform";
 
 interface SpeakingProps {
-  transcript: string;
   audioLevel: number;
   /** When true, render thinking pulse instead of speaker (state was 'thinking'). */
   thinking?: boolean;
@@ -13,8 +12,7 @@ interface SpeakingProps {
   hasNotch?: boolean;
 }
 
-function SpeakingInner({ transcript, audioLevel, thinking = false, preparing = false, hasNotch = false }: SpeakingProps) {
-  const text = transcript || (thinking ? "Thinking…" : preparing ? "Preparing audio…" : "Speaking…");
+function SpeakingInner({ audioLevel, thinking = false, preparing = false, hasNotch = false }: SpeakingProps) {
   return (
     <motion.div
       key="speaking-content"
@@ -26,19 +24,7 @@ function SpeakingInner({ transcript, audioLevel, thinking = false, preparing = f
       animate="center"
       exit="exit"
     >
-      <div className="island-leading">
-        <span className="island-transcript-mask">
-          <motion.span
-            key={text}
-            className="island-transcript-text"
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}
-          >
-            {text}
-          </motion.span>
-        </span>
-      </div>
+      <div className="island-leading" />
 
       {hasNotch && <div className="island-notch-spacer" />}
 

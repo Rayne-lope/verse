@@ -15,18 +15,10 @@ export const DEFAULT_ISLAND_CALIBRATION: IslandCalibration = {
   heightScale: 1.0,
   attachOverlap: 2,
   bottomRadius: 20,
-  notchSafePadding: 18,
+  notchSafePadding: 16,
 };
 
 export function getIslandCalibration(): IslandCalibration {
-  try {
-    const saved = localStorage.getItem("verse_island_calibration");
-    if (saved) {
-      return { ...DEFAULT_ISLAND_CALIBRATION, ...JSON.parse(saved) };
-    }
-  } catch {
-    // ignore
-  }
   return DEFAULT_ISLAND_CALIBRATION;
 }
 
