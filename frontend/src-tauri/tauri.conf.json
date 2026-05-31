@@ -17,7 +17,7 @@
         "title": "Verse",
         "width": 180,
         "height": 180,
-        "resizable": false,
+        "resizable": true,
         "maximizable": false,
         "minimizable": false,
         "transparent": true,

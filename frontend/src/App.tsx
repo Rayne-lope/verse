@@ -3,7 +3,7 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import { Bubble } from "./components/Bubble";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { OnboardingFlow } from "./components/OnboardingFlow";
-import { resizeWindow, setFullscreen } from "./utils/window";
+import { resizeWindow, setFullscreen, lockWidgetMode } from "./utils/window";
 import "./App.css";
 
 const BUBBLE_W = 180;
@@ -85,8 +85,11 @@ function App() {
   useEffect(() => {
     if (displayMode === "canvas") {
       setFullscreen(true, BUBBLE_W);
+    } else {
+      // Ensure widget mode is properly locked on startup
+      lockWidgetMode(BUBBLE_W, BUBBLE_H);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (import.meta.env.DEV) {

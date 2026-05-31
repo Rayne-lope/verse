@@ -1,3 +1,18 @@
+/** Called on startup in widget mode to lock the window to bubble size. */
+export async function lockWidgetMode(width: number, height: number): Promise<void> {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const { LogicalSize } = await import("@tauri-apps/api/dpi");
+    const win = getCurrentWindow();
+    await win.setResizable(false);
+    await win.setAlwaysOnTop(true);
+    await win.setVisibleOnAllWorkspaces(true);
+    await win.setSize(new LogicalSize(width, height));
+  } catch {
+    // browser preview or non-Tauri env — ignore
+  }
+}
+
 export async function resizeWindow(width: number, height: number): Promise<void> {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -17,23 +32,28 @@ export async function setFullscreen(fullscreen: boolean, bubbleWidth: number = 1
 
     if (fullscreen) {
       if (monitor) {
-        const width = monitor.size.width;
-        const height = monitor.size.height;
-        const x = monitor.position.x;
-        const y = monitor.position.y;
+        const { width, height } = monitor.size;
+        const { x, y } = monitor.position;
 
+        // Enable resize + disable always-on-top so window behaves as a normal fullscreen
         await win.setResizable(true);
+        await win.setAlwaysOnTop(false);
+        await win.setVisibleOnAllWorkspaces(false);
         await win.setPosition(new PhysicalPosition(x, y));
         await win.setSize(new PhysicalSize(width, height));
+        await win.setFocus();
       }
     } else {
       if (monitor) {
-        const scaleFactor = monitor.scaleFactor;
+        const { scaleFactor } = monitor;
         const size = Math.round(bubbleWidth * scaleFactor);
-        
+
         await win.setSize(new PhysicalSize(size, size));
         await positionTopRight(bubbleWidth);
+        // Lock back to widget behaviour
         await win.setResizable(false);
+        await win.setAlwaysOnTop(true);
+        await win.setVisibleOnAllWorkspaces(true);
       }
     }
   } catch {
