@@ -1,0 +1,380 @@
+/* ===========================================================================
+   Dynamic Island — base shell + per-mode content styling
+   - Shell uses Framer Motion layout animation; CSS only owns colors, fonts,
+     content layout, glow halo, and per-state hues.
+   - All transitions on transform/opacity only (GPU-accelerated).
+   =========================================================================== */
+
+@property --island-hue {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 255;
+}
+
+@property --island-chroma {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.09;
+}
+
+.island-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 8px;
+  pointer-events: none;
+  z-index: 10;
+  background: transparent;
+  --island-hue: 255;
+  --island-chroma: 0.09;
+  transition: --island-hue 450ms ease, --island-chroma 450ms ease;
+}
+
+/* Per-state hue tokens (matches Bubble.css OKLch system) */
+.island-stage[data-state="idle"]     { --island-hue: 255; --island-chroma: 0.09; }
+.island-stage[data-state="listening"]{ --island-hue: 195; --island-chroma: 0.17; }
+.island-stage[data-state="thinking"] { --island-hue: 300; --island-chroma: 0.18; }
+.island-stage[data-state="speaking"] { --island-hue: 350; --island-chroma: 0.19; }
+.island-stage[data-state="error"]    { --island-hue: 25;  --island-chroma: 0.20; }
+
+/* ---------------- Shell ---------------- */
+
+.island-shell {
+  position: relative;
+  pointer-events: auto;
+  background: oklch(0% 0 0 / 0.96);
+  color: oklch(96% 0.01 var(--island-hue));
+  border: 1px solid oklch(100% 0 0 / 0.06);
+  box-shadow:
+    0 8px 24px oklch(0% 0 0 / 0.45),
+    0 2px 6px oklch(0% 0 0 / 0.35),
+    inset 0 1px 0 oklch(100% 0 0 / 0.05);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateZ(0);
+  will-change: transform, width, height, border-radius;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+}
+
+.island-shell[data-clickable] {
+  cursor: pointer;
+}
+
+.island-shell[data-clickable]:hover {
+  background: oklch(4% 0 0 / 0.96);
+}
+
+.island-shell[data-mode="expanded"] {
+  cursor: default;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+/* Audio-reactive glow halo behind the shell (sits inside, no layout impact) */
+.island-glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at 50% 50%,
+    oklch(72% calc(var(--island-chroma) + 0.06) var(--island-hue) / 0.45) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  filter: blur(8px);
+  z-index: 0;
+}
+
+/* ---------------- Content (universal) ---------------- */
+
+.island-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0 14px;
+  gap: 10px;
+  color: oklch(95% 0.01 var(--island-hue));
+}
+
+.island-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: oklch(72% calc(var(--island-chroma) + 0.04) var(--island-hue));
+  box-shadow: 0 0 8px oklch(72% calc(var(--island-chroma) + 0.06) var(--island-hue) / 0.85);
+  flex-shrink: 0;
+}
+
+.island-status-dot[data-connected="false"] {
+  background: oklch(55% 0.03 var(--island-hue));
+  box-shadow: none;
+  animation: island-dot-pulse 1.6s ease-in-out infinite;
+}
+
+.island-status-dot[data-state="listening"],
+.island-status-dot[data-state="speaking"] {
+  animation: island-dot-active 1.2s ease-in-out infinite;
+}
+
+@keyframes island-dot-active {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+
+@keyframes island-dot-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.island-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: oklch(80% calc(var(--island-chroma) + 0.02) var(--island-hue) / 0.9);
+  flex-shrink: 0;
+}
+
+.island-icon--mini-wf {
+  color: oklch(80% calc(var(--island-chroma) + 0.04) var(--island-hue));
+}
+
+/* ---------------- Compact mode ---------------- */
+
+.island-content--compact {
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.island-wordmark {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  color: oklch(82% 0.01 var(--island-hue) / 0.7);
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+/* ---------------- Listening mode ---------------- */
+
+.island-content--listening {
+  padding: 0 16px;
+}
+
+.island-listening-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: oklch(86% 0.02 var(--island-hue));
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+}
+
+.island-waveform-slot {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: oklch(82% calc(var(--island-chroma) + 0.05) var(--island-hue));
+}
+
+/* ---------------- Speaking mode ---------------- */
+
+.island-content--speaking {
+  padding: 0 16px;
+}
+
+.island-transcript-mask {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  mask-image: linear-gradient(to right,
+    transparent 0,
+    black 12px,
+    black calc(100% - 18px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(to right,
+    transparent 0,
+    black 12px,
+    black calc(100% - 18px),
+    transparent 100%
+  );
+}
+
+.island-transcript-text {
+  display: inline-block;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: oklch(95% 0 0);
+  letter-spacing: 0.005em;
+}
+
+.island-content--speaking[data-thinking] .island-transcript-text {
+  color: oklch(86% 0.02 var(--island-hue) / 0.85);
+  font-style: italic;
+}
+
+/* ---------------- Expanded mode ---------------- */
+
+.island-content--expanded {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 14px 16px 12px;
+  gap: 10px;
+}
+
+.island-expanded-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.island-status-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: oklch(92% 0.02 var(--island-hue));
+  letter-spacing: 0.005em;
+}
+
+.island-iconbtn {
+  background: transparent;
+  border: 1px solid oklch(100% 0 0 / 0.08);
+  color: oklch(80% 0.01 0 / 0.8);
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 140ms ease, color 140ms ease, transform 120ms ease;
+}
+
+.island-iconbtn:hover {
+  background: oklch(100% 0 0 / 0.06);
+  color: oklch(96% 0 0);
+}
+
+.island-iconbtn:active {
+  transform: scale(0.93);
+}
+
+.island-iconbtn--close {
+  margin-left: auto;
+}
+
+.island-expanded-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.island-expanded-viz {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  color: oklch(78% calc(var(--island-chroma) + 0.04) var(--island-hue));
+  border-radius: 12px;
+  background: oklch(100% 0 0 / 0.03);
+  border: 1px solid oklch(100% 0 0 / 0.04);
+}
+
+.island-expanded-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: oklch(88% 0.01 var(--island-hue) / 0.9);
+  font-weight: 400;
+  /* Clamp to ~3 lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.island-expanded-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid oklch(100% 0 0 / 0.04);
+}
+
+.island-control-btn {
+  background: oklch(100% 0 0 / 0.04);
+  border: 1px solid oklch(100% 0 0 / 0.08);
+  color: oklch(90% 0.01 var(--island-hue));
+  border-radius: 999px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: background 160ms ease, color 160ms ease, transform 120ms ease, border-color 160ms ease;
+}
+
+.island-control-btn:hover {
+  background: oklch(100% 0 0 / 0.09);
+  border-color: oklch(100% 0 0 / 0.14);
+  color: oklch(98% 0 0);
+}
+
+.island-control-btn:active {
+  transform: scale(0.92);
+}
+
+.island-control-btn[data-active="true"] {
+  background: oklch(72% calc(var(--island-chroma) + 0.04) var(--island-hue) / 0.22);
+  border-color: oklch(72% calc(var(--island-chroma) + 0.06) var(--island-hue) / 0.5);
+  color: oklch(94% calc(var(--island-chroma) + 0.02) var(--island-hue));
+}
+
+.island-control-btn--stop {
+  background: oklch(60% 0.18 25 / 0.18);
+  border-color: oklch(60% 0.2 25 / 0.4);
+  color: oklch(85% 0.16 25);
+}
+
+.island-control-btn--stop:hover {
+  background: oklch(60% 0.2 25 / 0.3);
+  color: oklch(94% 0.18 25);
+}
+
+/* ---------------- Error mode ---------------- */
+
+.island-content--error {
+  padding: 0 16px;
+  gap: 10px;
+  color: oklch(85% 0.18 25);
+  font-size: 12.5px;
+  font-weight: 600;
+  animation: island-shake 0.5s ease-in-out;
+}
+
+@keyframes island-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1px); }
+  80% { transform: translateX(1px); }
+}

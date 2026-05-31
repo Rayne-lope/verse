@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { Bubble } from "./components/Bubble";
+import { DynamicIsland } from "./components/DynamicIsland";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { OnboardingFlow } from "./components/OnboardingFlow";
 import { resizeWindow, setFullscreen, lockWidgetMode } from "./utils/window";
 import "./App.css";
 
-const BUBBLE_W = 180;
-const BUBBLE_H = 180;
+const WIDGET_W = 600;
+const WIDGET_H = 280;
 const SETTINGS_W = 480;
 const SETTINGS_H = 560;
 const ONBOARDING_W = 420;
@@ -37,7 +38,7 @@ function App() {
   const shrinkIfIdle = useCallback((exceptSettings: boolean, exceptOnboarding: boolean) => {
     setTimeout(() => {
       if (!exceptSettings && !exceptOnboarding) {
-        resizeWindow(BUBBLE_W, BUBBLE_H);
+        resizeWindow(WIDGET_W, WIDGET_H);
       }
     }, 240);
   }, []);
@@ -47,7 +48,7 @@ function App() {
     setDisplayMode(nextMode);
     localStorage.setItem("verse_display_mode", nextMode);
 
-    await setFullscreen(nextMode === "canvas", BUBBLE_W);
+    await setFullscreen(nextMode === "canvas", WIDGET_W);
   }, [displayMode]);
 
   const handleOpenSettings = useCallback(() => {
@@ -84,10 +85,10 @@ function App() {
 
   useEffect(() => {
     if (displayMode === "canvas") {
-      setFullscreen(true, BUBBLE_W);
+      setFullscreen(true, WIDGET_W);
     } else {
       // Ensure widget mode is properly locked on startup
-      lockWidgetMode(BUBBLE_W, BUBBLE_H);
+      lockWidgetMode(WIDGET_W, WIDGET_H);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -178,7 +179,9 @@ function App() {
         </button>
       )}
 
-      <Bubble onOpenSettings={handleOpenSettings} />
+      {displayMode === "widget"
+        ? <DynamicIsland onOpenSettings={handleOpenSettings} onOpenCanvas={toggleDisplayMode} />
+        : <Bubble onOpenSettings={handleOpenSettings} />}
 
       {displayMode === "canvas" && (transcript || assistantText) && (
         <div className="canvas-subtitles">

@@ -226,6 +226,13 @@ body,
   scale: 1.15;
 }
 
+/* In widget mode the Dynamic Island has its own status dot — hide the floating one */
+.shell-surface[data-display-mode="widget"] .ws-status,
+.shell-surface[data-display-mode="widget"] .privacy-indicator,
+.shell-surface[data-display-mode="widget"] .display-mode-toggle {
+  display: none;
+}
+
 .privacy-indicator {
   position: absolute;
   left: 8px;
