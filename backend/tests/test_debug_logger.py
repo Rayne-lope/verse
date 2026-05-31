@@ -89,6 +89,21 @@ def test_debug_session_logger_turns_and_files(temp_session_dir):
         saved_metrics = json.load(f)
     assert saved_metrics == metrics
 
+    summary = {
+        "turn_id": "1",
+        "audio_ms": 250,
+        "transcript_chars": 5,
+        "provider": {"stt": "fake-stt", "llm": "fake-llm", "tts": "fake-tts"},
+        "latency": {"stt_ms": 100},
+        "tool_count": 0,
+        "cancelled": False,
+        "events": [],
+    }
+    logger.log_latency_summary(turn_id, summary)
+    with open(turn_dir / "latency_summary.json", encoding="utf-8") as f:
+        saved_summary = json.load(f)
+    assert saved_summary == summary
+
     # Log errors
     logger.log_error(turn_id, "ValueError", "something went wrong", "traceback_string")
     with open(turn_dir / "errors.jsonl", encoding="utf-8") as f:
@@ -160,6 +175,7 @@ async def test_orchestrator_integration_logging(temp_session_dir):
     assert (turn_dir / "input.wav").exists()
     assert (turn_dir / "output.wav").exists()
     assert (turn_dir / "metrics.json").exists()
+    assert (turn_dir / "latency_summary.json").exists()
     assert (turn_dir / "pipeline_events.jsonl").exists()
     assert (turn_dir / "llm_transaction.json").exists()
 
@@ -168,6 +184,17 @@ async def test_orchestrator_integration_logging(temp_session_dir):
         events = [json.loads(line) for line in f]
     assert any(e["stage"] == "stt" and e["event"] == "started" for e in events)
     assert any(e["stage"] == "stt" and e["event"] == "completed" and e["metadata"].get("text") == "Hello World" for e in events)
+
+    with open(turn_dir / "latency_summary.json", encoding="utf-8") as f:
+        summary = json.load(f)
+    assert summary["turn_id"] == "1"
+    assert summary["transcript_chars"] == len("Hello World")
+    assert summary["provider"] == {"stt": "groq", "llm": "deepseek", "tts": "edge-tts"}
+    assert summary["latency"]["stt_ms"] is not None
+    assert summary["latency"]["llm_total_ms"] is not None
+    assert summary["latency"]["tts_first_audio_ms"] is not None
+    assert summary["cancelled"] is False
+    assert "turn_done" in [event["name"] for event in summary["events"]]
 
 
 def test_cli_subcommands(temp_session_dir, capsys):

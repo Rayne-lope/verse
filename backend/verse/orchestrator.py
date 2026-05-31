@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 from typing import Any, Callable
 
 from verse.config import AppConfig
 from verse.intent import LocalIntentMatch, LocalIntentRouter
+from verse.latency import LatencyTracker
 from verse.llm.base import LLMAdapter
 from verse.state import State, StateMachine, StateChangedEvent
 from verse.stt.base import STTAdapter
@@ -171,6 +173,8 @@ class Orchestrator:
         self._current_vad_timeline: list[dict[str, Any]] = []
         self._current_pipeline_events: list[dict[str, Any]] = []
         self._current_latency_metrics: dict[str, Any] = {}
+        self._latency_tracker: LatencyTracker | None = None
+        self._last_latency_summary: dict[str, Any] | None = None
         self._input_audio_bytes: bytes | None = None
         self._output_audio_bytes: bytes | None = None
         self._llm_messages: list[dict[str, Any]] = []
@@ -230,8 +234,43 @@ class Orchestrator:
                     logger.exception("Error in user on_pipeline_event callback")
         self._wrapped_on_pipeline_event = wrapped
 
+    def _start_latency_tracker(self, turn_id: int | str | None) -> None:
+        if turn_id is None:
+            import time
+            turn_id = f"turn-{time.time_ns()}"
+        self._latency_tracker = LatencyTracker(str(turn_id))
+        self._latency_tracker.set_metadata(
+            provider={
+                "stt": self.config.stt.provider,
+                "llm": self.config.llm.provider,
+                "tts": self.config.tts.provider,
+            }
+        )
+
+    def _latency_mark(self, event_name: str, **data: Any) -> None:
+        if self._latency_tracker is not None:
+            self._latency_tracker.mark(event_name, **data)
+
+    def _latency_metadata(self, **data: Any) -> None:
+        if self._latency_tracker is not None:
+            self._latency_tracker.set_metadata(**data)
+
+    def _emit_latency_summary(self, turn_id: int | None) -> None:
+        if self._latency_tracker is None:
+            return
+        summary = self._latency_tracker.summary()
+        self._last_latency_summary = summary
+        try:
+            logger.info("latency_summary %s", json.dumps(summary, sort_keys=True))
+        except TypeError:
+            logger.info("latency_summary %s", summary)
+        if self.debug_logger is not None and turn_id is not None:
+            self.debug_logger.log_latency_summary(turn_id, summary)
+        self._latency_tracker = None
+
     def _write_current_turn_data(self) -> None:
         if self.debug_logger is None or self._current_turn_id is None:
+            self._emit_latency_summary(None)
             return
         
         turn_id = self._current_turn_id
@@ -253,6 +292,8 @@ class Orchestrator:
             
         if self._current_latency_metrics:
             self.debug_logger.log_metrics(turn_id, self._current_latency_metrics)
+
+        self._emit_latency_summary(turn_id)
             
         self._current_turn_id = None
 
@@ -269,6 +310,7 @@ class Orchestrator:
 
         if self.debug_logger is not None:
             if self._current_turn_id is not None:
+                self._latency_mark("turn_done", auto_next_turn=True)
                 self._write_current_turn_data()
             self._current_turn_id = self.debug_logger.new_turn()
             self._current_vad_timeline = []
@@ -279,7 +321,10 @@ class Orchestrator:
             self._llm_messages = []
             self._llm_response = {}
 
+        self._start_latency_tracker(self._current_turn_id)
+        self._latency_mark("hotkey_down", auto=is_auto)
         self.state_machine.hotkey_pressed()
+        self._latency_mark("record_start")
         self.recorder.start_recording(on_audio_level=self._handle_audio_level)
         return True
 
@@ -293,6 +338,8 @@ class Orchestrator:
         self._auto_listening = False
         self._cancel_vad_task()
         audio = self.recorder.stop_recording()
+        self._latency_mark("audio_wav_ready", bytes=len(audio))
+        self._latency_metadata(audio_ms=_audio_duration_ms(audio))
         
         if _is_audio_too_short(audio):
             self.state_machine.audio_done()
@@ -309,6 +356,11 @@ class Orchestrator:
         self, audio: bytes, *, history: list[dict[str, Any]] | None = None
     ) -> str:
         import time
+        if self._latency_tracker is None:
+            self._start_latency_tracker(self._current_turn_id)
+            self._latency_mark("audio_wav_ready", bytes=len(audio), source="direct")
+            self._latency_metadata(audio_ms=_audio_duration_ms(audio))
+
         turn_id = self._current_turn_id
         self._input_audio_bytes = audio
 
@@ -318,7 +370,10 @@ class Orchestrator:
             except RuntimeError:
                 pass
             start_stt = time.time()
+            self._latency_mark("stt_start")
             transcript = await self._transcribe(audio)
+            self._latency_mark("stt_final", chars=len(transcript))
+            self._latency_metadata(transcript_chars=len(transcript))
             stt_duration = time.time() - start_stt
             print(f"[Debug] STT took: {stt_duration:.2f}s")
             
@@ -340,10 +395,16 @@ class Orchestrator:
 
             if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
                 self._current_latency_metrics["tts_ms"] = int(tts_duration * 1000)
+            if self._current_turn_id == turn_id:
+                self._latency_mark("turn_done")
+                self._write_current_turn_data()
+            elif turn_id is None:
+                self._latency_mark("turn_done")
                 self._write_current_turn_data()
 
             return reply
         except Exception as exc:  # surface failure to UI/state machine
+            self._latency_mark("turn_done", error=exc.__class__.__name__)
             if self.on_pipeline_event:
                 self.on_pipeline_event(
                     "error",
@@ -361,6 +422,8 @@ class Orchestrator:
                 )
                 if self._current_turn_id == turn_id:
                     self._write_current_turn_data()
+            elif turn_id is None:
+                self._write_current_turn_data()
             raise
 
     async def _transcribe(self, audio: bytes) -> str:
@@ -376,7 +439,9 @@ class Orchestrator:
         return transcript
 
     async def _respond(self, transcript: str, history: list[dict[str, Any]]) -> str:
+        self._latency_mark("local_intent_start")
         local_reply = self._try_local_intent(transcript)
+        self._latency_mark("local_intent_done", matched=local_reply is not None)
         if local_reply is not None:
             self._llm_messages = [{"role": "user", "content": transcript}]
             self._llm_response = {"text": local_reply}
@@ -396,14 +461,24 @@ class Orchestrator:
 
         reply = ""
         total_tool_ms = 0.0
+        tool_count = 0
+        llm_started = False
+        llm_first_token_seen = False
         for _ in range(self.max_tool_iterations):
+            if not llm_started:
+                self._latency_mark("llm_request_start")
+                llm_started = True
             response = await self.llm.chat(messages, tools=tools)
+            if response.text and not llm_first_token_seen:
+                self._latency_mark("llm_first_token")
+                llm_first_token_seen = True
             if not response.tool_calls:
                 reply = response.text.strip()
                 self._llm_response = {
                     "text": reply,
                     "tool_calls": []
                 }
+                self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
                 break
 
             messages.append(
@@ -419,6 +494,7 @@ class Orchestrator:
                 result = self._run_tool(tool_call)
                 tool_duration = time.time() - start_tool
                 total_tool_ms += tool_duration
+                tool_count += 1
 
                 messages.append(
                     {
@@ -430,13 +506,18 @@ class Orchestrator:
         else:
             # Exhausted iterations; do a final toolless call for a clean answer.
             response = await self.llm.chat(messages)
+            if response.text and not llm_first_token_seen:
+                self._latency_mark("llm_first_token")
+                llm_first_token_seen = True
             reply = response.text.strip()
             self._llm_response = {
                 "text": reply,
                 "tool_calls": []
             }
+            self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
 
         self._llm_messages = messages
+        self._latency_metadata(tool_count=tool_count)
         if self.debug_logger is not None and self._current_turn_id is not None:
             self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
 
@@ -657,12 +738,14 @@ class Orchestrator:
 
     def _run_tool(self, tool_call: dict[str, Any]) -> str:
         name = tool_call.get("function", {}).get("name", "")
+        self._latency_mark("tool_start", name=name)
         if self.on_pipeline_event:
             self.on_pipeline_event("tool", "started", {"name": name})
         try:
             result = self.registry.execute_call(tool_call)
         except Exception as exc:
             result = f"Tool '{name}' failed: {exc}"
+        self._latency_mark("tool_done", name=name, ok=not result.startswith(f"Tool '{name}' failed:"))
         if self.on_pipeline_event:
             self.on_pipeline_event("tool", "completed", {"name": name, "result": result})
         if self.on_tool_executed:
@@ -719,11 +802,15 @@ class Orchestrator:
         try:
             if text:
                 clean_text = self._clean_markdown_for_tts(text)
+                self._latency_mark("tts_request_start", chars=len(clean_text))
                 audio = await self.tts.synthesize(clean_text)
                 if audio:
+                    self._latency_mark("tts_first_audio", bytes=len(audio))
                     self._output_audio_bytes = audio
                     if self._play is not None:
+                        self._latency_mark("playback_start")
                         await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
+                        self._latency_mark("playback_done", interrupted=stop_event.is_set())
             interrupted = stop_event.is_set()
         finally:
             if self._playback_stop_event is stop_event:
@@ -764,6 +851,9 @@ class Orchestrator:
         if self.state_machine.state is not State.SPEAKING and self._playback_stop_event is None:
             return False
 
+        self._latency_mark("barge_in_detected")
+        self._latency_mark("cancel_start")
+        self._latency_metadata(cancelled=True)
         self._barge_in_requested = True
         if self._playback_stop_event is not None:
             self._playback_stop_event.set()
@@ -779,6 +869,7 @@ class Orchestrator:
         if self._barge_in_handled:
             return
         self._barge_in_handled = True
+        self._latency_mark("cancel_done")
 
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "interrupted", {})
@@ -944,11 +1035,18 @@ class Orchestrator:
                         if state == VADState.SPEECH_ACTIVE and prev_state == VADState.WAITING_FOR_SPEECH:
                             print("Heard you, listening...")
                             rms_fallback_active = False
+                            self._latency_mark("vad_speech_start", detector="silero")
                             if self.on_pipeline_event:
                                 self.on_pipeline_event("vad", "speech_started", {})
                         elif state == VADState.ENDED:
                             duration_ms = len(utterance_chunks or []) * VAD_FRAME_MS
                             stop_reason = "max_utterance" if duration_ms >= self.config.vad.max_utterance_ms else "silence"
+                            self._latency_mark(
+                                "vad_speech_end",
+                                detector="silero",
+                                stop_reason=stop_reason,
+                                duration_ms=duration_ms,
+                            )
                             if self.on_pipeline_event:
                                 self.on_pipeline_event("vad", "speech_ended", {"stop_reason": stop_reason})
                         prev_state = state
@@ -997,6 +1095,12 @@ class Orchestrator:
                             rms_voiced_ms = rms_speech_ms
                             rms_chunks = list(rms_pre_roll)
                             print("Heard you, listening...")
+                            self._latency_mark(
+                                "vad_speech_start",
+                                detector="rms",
+                                rms_level=rms_level,
+                                probability=prob,
+                            )
                             if self.on_pipeline_event:
                                 self.on_pipeline_event(
                                     "vad",
@@ -1022,6 +1126,13 @@ class Orchestrator:
                                 else "silence"
                             )
                             if rms_voiced_ms >= self.config.vad.min_utterance_ms:
+                                self._latency_mark(
+                                    "vad_speech_end",
+                                    detector="rms",
+                                    stop_reason=stop_reason,
+                                    duration_ms=rms_duration_ms,
+                                    voiced_ms=rms_voiced_ms,
+                                )
                                 if self.on_pipeline_event:
                                     self.on_pipeline_event(
                                         "vad",
@@ -1103,6 +1214,8 @@ class Orchestrator:
 
             from verse.audio.capture import samples_to_wav_bytes
             audio = samples_to_wav_bytes(samples, 16000)
+            self._latency_mark("audio_wav_ready", bytes=len(audio), source="vad")
+            self._latency_metadata(audio_ms=_audio_duration_ms(audio))
 
             if _is_audio_too_short(audio):
                 self.state_machine.audio_done()
@@ -1161,6 +1274,16 @@ class Orchestrator:
                 browser_close()
             except Exception as exc:
                 logger.error(f"Failed to close browser on IDLE transition: {exc}")
+
+
+def _audio_duration_ms(audio: bytes) -> int | None:
+    try:
+        import io
+        import soundfile as sf
+        with sf.SoundFile(io.BytesIO(audio)) as f:
+            return round((len(f) / f.samplerate) * 1000)
+    except Exception:
+        return None
 
 
 def _is_audio_too_short(audio: bytes) -> bool:

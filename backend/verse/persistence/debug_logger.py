@@ -81,6 +81,11 @@ class DebugSessionLogger:
         with open(turn_dir / "metrics.json", "w", encoding="utf-8") as f:
             json.dump(metrics, f, indent=2)
 
+    def log_latency_summary(self, turn_id: int, summary: dict[str, Any]) -> None:
+        turn_dir = self.get_turn_dir(turn_id)
+        with open(turn_dir / "latency_summary.json", "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+
     def log_error(
         self,
         turn_id: int,
