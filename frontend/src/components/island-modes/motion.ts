@@ -1,4 +1,6 @@
 import type { Transition, Variants } from "framer-motion";
+import type { IslandCalibration } from "../../utils/calibration";
+import { DEFAULT_ISLAND_CALIBRATION } from "../../utils/calibration";
 
 /** Primary morph spring — tuned to match iOS Dynamic Island shell transitions. */
 export const ISLAND_SPRING: Transition = {
@@ -36,14 +38,15 @@ interface NotchHint {
 /** Compute mode shell sizes. When a notch is present, compact mode matches the
  *  notch dimensions exactly so the pill visually merges with the hardware notch.
  *  Active modes grow outward symmetrically from that anchor. */
-export function getShellSizes(notch: NotchHint | null): ShellSizes {
+export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibration = DEFAULT_ISLAND_CALIBRATION): ShellSizes {
   const hasNotch = Boolean(notch?.hasNotch);
-  const notchHeight = notch?.hasNotch ? notch.height : 0;
 
-  // With notch: extend slightly wider and taller than the physical camera cutout to frame it beautifully.
-  const compactW = notch?.hasNotch ? notch.width + 24 : 140;
-  // Compact has 20px of visible area below the notch
-  const compactH = notch?.hasNotch ? notchHeight + 20 : 36;
+  // Base dimensions adjusted by calibration scales
+  const baseWidth = notch?.hasNotch ? notch.width : 140;
+  const baseHeight = notch?.hasNotch ? notch.height : 34;
+
+  const compactW = baseWidth * calibration.widthScale;
+  const compactH = baseHeight * calibration.heightScale + (hasNotch ? 2 : 0);
 
   return {
     compact: {
@@ -51,46 +54,46 @@ export function getShellSizes(notch: NotchHint | null): ShellSizes {
       height: compactH,
       borderTopLeftRadius: hasNotch ? 0 : compactH / 2,
       borderTopRightRadius: hasNotch ? 0 : compactH / 2,
-      borderBottomLeftRadius: hasNotch ? 16 : compactH / 2,
-      borderBottomRightRadius: hasNotch ? 16 : compactH / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : compactH / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius : compactH / 2,
     },
     listening: {
-      width: Math.max(280, compactW + 100),
-      height: hasNotch ? notchHeight + 38 : 42,
-      borderTopLeftRadius: hasNotch ? 0 : 42 / 2,
-      borderTopRightRadius: hasNotch ? 0 : 42 / 2,
-      borderBottomLeftRadius: hasNotch ? 20 : 42 / 2,
-      borderBottomRightRadius: hasNotch ? 20 : 42 / 2,
+      width: compactW + 96,
+      height: compactH + 8,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 8) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 8) / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 8) / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 8) / 2,
     },
     speaking: {
-      width: hasNotch ? Math.max(420, compactW + 240) : 380,
-      height: hasNotch ? notchHeight + 40 : 44,
-      borderTopLeftRadius: hasNotch ? 0 : 44 / 2,
-      borderTopRightRadius: hasNotch ? 0 : 44 / 2,
-      borderBottomLeftRadius: hasNotch ? 20 : 44 / 2,
-      borderBottomRightRadius: hasNotch ? 20 : 44 / 2,
+      width: compactW + 140,
+      height: compactH + 12,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 12) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 12) / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 4 : (compactH + 12) / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 4 : (compactH + 12) / 2,
     },
     expanded: {
-      width: 400,
-      height: hasNotch ? notchHeight + 210 : 220,
+      width: 380,
+      height: 210,
       borderTopLeftRadius: hasNotch ? 0 : 28,
       borderTopRightRadius: hasNotch ? 0 : 28,
       borderBottomLeftRadius: 28,
       borderBottomRightRadius: 28,
     },
     error: {
-      width: Math.max(260, compactW + 80),
-      height: hasNotch ? notchHeight + 38 : 42,
-      borderTopLeftRadius: hasNotch ? 0 : 42 / 2,
-      borderTopRightRadius: hasNotch ? 0 : 42 / 2,
-      borderBottomLeftRadius: hasNotch ? 20 : 42 / 2,
-      borderBottomRightRadius: hasNotch ? 20 : 42 / 2,
+      width: compactW + 70,
+      height: compactH + 4,
+      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
+      borderBottomLeftRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 4) / 2,
+      borderBottomRightRadius: hasNotch ? calibration.bottomRadius + 2 : (compactH + 4) / 2,
     },
   };
 }
 
 /** Default sizes (no notch) — kept for components that don't have access to notch context. */
-export const SHELL_SIZES: ShellSizes = getShellSizes(null);
+export const SHELL_SIZES: ShellSizes = getShellSizes(null, DEFAULT_ISLAND_CALIBRATION);
 
 /** Content swap variants — fades out fast, swaps, fades in scaled. */
 export const contentVariants: Variants = {

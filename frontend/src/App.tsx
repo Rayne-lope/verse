@@ -4,7 +4,8 @@ import { Bubble } from "./components/Bubble";
 import { DynamicIsland } from "./components/DynamicIsland";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { OnboardingFlow } from "./components/OnboardingFlow";
-import { resizeWindow, setFullscreen, lockWidgetMode } from "./utils/window";
+import { resizeAndPositionWidget, setFullscreen } from "./utils/window";
+import { getIslandCalibration } from "./utils/calibration";
 import "./App.css";
 
 const WIDGET_W = 480;
@@ -32,13 +33,26 @@ function App() {
     return saved === "canvas" ? "canvas" : "widget";
   });
 
+  useEffect(() => {
+    const handleCalibration = () => {
+      const nextCal = getIslandCalibration();
+      if (displayMode === "widget") {
+        const w = settingsOpen ? SETTINGS_W : onboardingOpen ? ONBOARDING_W : WIDGET_W;
+        const h = settingsOpen ? SETTINGS_H : onboardingOpen ? ONBOARDING_H : WIDGET_H;
+        resizeAndPositionWidget(w, h, nextCal);
+      }
+    };
+    window.addEventListener("verse_calibration_changed", handleCalibration);
+    return () => window.removeEventListener("verse_calibration_changed", handleCalibration);
+  }, [displayMode, settingsOpen, onboardingOpen]);
+
   const micActive = Boolean(micStatus?.active || lastState === "listening");
   const micMode = lastState === "listening" ? "recording" : micStatus?.mode ?? "off";
 
   const shrinkIfIdle = useCallback((exceptSettings: boolean, exceptOnboarding: boolean) => {
     setTimeout(() => {
       if (!exceptSettings && !exceptOnboarding) {
-        resizeWindow(WIDGET_W, WIDGET_H);
+        resizeAndPositionWidget(WIDGET_W, WIDGET_H);
       }
     }, 240);
   }, []);
@@ -53,7 +67,7 @@ function App() {
 
   const handleOpenSettings = useCallback(() => {
     if (displayMode === "widget") {
-      resizeWindow(SETTINGS_W, SETTINGS_H);
+      resizeAndPositionWidget(SETTINGS_W, SETTINGS_H);
     }
     setSettingsOpen(true);
   }, [displayMode]);
@@ -67,7 +81,7 @@ function App() {
 
   const handleOpenOnboarding = useCallback(() => {
     if (displayMode === "widget") {
-      resizeWindow(ONBOARDING_W, ONBOARDING_H);
+      resizeAndPositionWidget(ONBOARDING_W, ONBOARDING_H);
     }
     setOnboardingOpen(true);
   }, [displayMode]);
@@ -88,7 +102,7 @@ function App() {
       setFullscreen(true, WIDGET_W);
     } else {
       // Ensure widget mode is properly locked on startup
-      lockWidgetMode(WIDGET_W, WIDGET_H);
+      resizeAndPositionWidget(WIDGET_W, WIDGET_H);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

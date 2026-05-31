@@ -1,3 +1,6 @@
+import type { IslandCalibration } from "./calibration";
+import { getIslandCalibration } from "./calibration";
+
 export interface NotchGeometry {
   hasNotch: boolean;
   /** Notch left-edge X in logical points relative to the screen origin. */
@@ -65,6 +68,43 @@ export async function positionAtNotch(containerWidth: number): Promise<NotchGeom
   }
 
   return notch;
+}
+
+/** Resize and position the widget window atomically using calibration parameters. */
+export async function resizeAndPositionWidget(
+  width: number,
+  height: number,
+  calibration?: IslandCalibration
+): Promise<NotchGeometry | null> {
+  const cal = calibration || getIslandCalibration();
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const { LogicalSize, LogicalPosition } = await import("@tauri-apps/api/dpi");
+    const win = getCurrentWindow();
+    const notch = await getNotchGeometry();
+
+    // Enforce lock behaviors
+    await win.setResizable(false);
+    await win.setAlwaysOnTop(true);
+    await win.setVisibleOnAllWorkspaces(true);
+    await win.setSize(new LogicalSize(width, height));
+    await elevateAboveMenuBar();
+
+    if (!notch) {
+      // Center top fallback
+      await positionTopCenter(width);
+      return null;
+    }
+
+    const notchCenterX = notch.x + notch.width / 2;
+    const x = notchCenterX - width / 2 + cal.xOffset;
+    const y = notch.y + cal.yOffset - cal.attachOverlap;
+
+    await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+    return notch;
+  } catch {
+    return null;
+  }
 }
 
 /** Called on startup in widget mode to lock the window to island container size. */

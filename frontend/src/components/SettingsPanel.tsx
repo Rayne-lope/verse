@@ -2,10 +2,11 @@ import { useState } from "react";
 import ReactDOM from "react-dom";
 import type { ApiKeyStatus } from "../types/ws";
 import { useWebSocket } from "../hooks/useWebSocket";
+import { getIslandCalibration, setIslandCalibration } from "../utils/calibration";
 import "./SettingsPanel.css";
 
-type Section = "API Keys" | "Voice" | "STT" | "LLM" | "Hotkeys" | "Always-On" | "Memory";
-const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Always-On", "Memory"];
+type Section = "API Keys" | "Voice" | "STT" | "LLM" | "Hotkeys" | "Always-On" | "Memory" | "Calibration";
+const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Always-On", "Memory", "Calibration"];
 
 interface Props {
   open: boolean;
@@ -54,6 +55,7 @@ export function SettingsPanel({ open, onClose }: Props) {
           {activeSection === "Hotkeys" && <HotkeysSection />}
           {activeSection === "Always-On" && <AlwaysOnSection />}
           {activeSection === "Memory" && <MemorySection />}
+          {activeSection === "Calibration" && <CalibrationSection />}
         </div>
       </div>
     </div>,
@@ -443,6 +445,136 @@ function MemorySection() {
             const v = parseInt(e.target.value, 10);
             if (!isNaN(v) && v !== memory.max_facts) send({ type: "update_config", section: "memory", key: "max_facts", value: v });
           }}
+        />
+      </div>
+    </>
+  );
+}
+
+function CalibrationSection() {
+  const [cal, setCal] = useState(getIslandCalibration);
+
+  const update = (key: keyof typeof cal, val: number) => {
+    const next = { ...cal, [key]: val };
+    setCal(next);
+    setIslandCalibration(next);
+  };
+
+  return (
+    <>
+      <p className="settings-section-hint">
+        Tune the Dynamic Island's scale, position, and safety padding to align perfectly with your MacBook's physical notch in real time.
+      </p>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">X Offset (px)</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.xOffset}px</span>
+        </div>
+        <input
+          type="range"
+          min={-50}
+          max={50}
+          step={1}
+          value={cal.xOffset}
+          onChange={(e) => update("xOffset", parseInt(e.target.value, 10))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Y Offset (px)</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.yOffset}px</span>
+        </div>
+        <input
+          type="range"
+          min={-20}
+          max={20}
+          step={1}
+          value={cal.yOffset}
+          onChange={(e) => update("yOffset", parseInt(e.target.value, 10))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Width Scale</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.widthScale.toFixed(2)}x</span>
+        </div>
+        <input
+          type="range"
+          min={0.8}
+          max={1.5}
+          step={0.01}
+          value={cal.widthScale}
+          onChange={(e) => update("widthScale", parseFloat(e.target.value))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Height Scale</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.heightScale.toFixed(2)}x</span>
+        </div>
+        <input
+          type="range"
+          min={0.8}
+          max={1.5}
+          step={0.01}
+          value={cal.heightScale}
+          onChange={(e) => update("heightScale", parseFloat(e.target.value))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Attach Overlap (px)</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.attachOverlap}px</span>
+        </div>
+        <input
+          type="range"
+          min={-5}
+          max={15}
+          step={1}
+          value={cal.attachOverlap}
+          onChange={(e) => update("attachOverlap", parseInt(e.target.value, 10))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Bottom Radius (px)</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.bottomRadius}px</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={40}
+          step={1}
+          value={cal.bottomRadius}
+          onChange={(e) => update("bottomRadius", parseInt(e.target.value, 10))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
+        />
+      </div>
+
+      <div className="settings-row" style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}>
+          <span className="settings-label">Notch Safe Padding (px)</span>
+          <span style={{ fontSize: "12px", color: "oklch(55% 0 0)" }}>{cal.notchSafePadding}px</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={40}
+          step={1}
+          value={cal.notchSafePadding}
+          onChange={(e) => update("notchSafePadding", parseInt(e.target.value, 10))}
+          style={{ width: "100%", accentColor: "oklch(60% 0.15 250)" }}
         />
       </div>
     </>

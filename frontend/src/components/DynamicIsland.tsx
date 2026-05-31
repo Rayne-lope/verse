@@ -8,6 +8,7 @@ import { CompactMode } from "./island-modes/CompactMode";
 import { ListeningMode } from "./island-modes/ListeningMode";
 import { SpeakingMode } from "./island-modes/SpeakingMode";
 import { ExpandedMode } from "./island-modes/ExpandedMode";
+import { getIslandCalibration } from "../utils/calibration";
 import "./DynamicIsland.css";
 
 interface DynamicIslandProps {
@@ -30,10 +31,26 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
     optimisticListening,
   });
 
+  const [calibration, setCalibration] = useState(getIslandCalibration);
+
+  useEffect(() => {
+    const handleCalibration = () => {
+      setCalibration(getIslandCalibration());
+    };
+    window.addEventListener("verse_calibration_changed", handleCalibration);
+    return () => window.removeEventListener("verse_calibration_changed", handleCalibration);
+  }, []);
+
   const notch = useNotchGeometry();
   const notchHeight = notch?.hasNotch ? notch.height : 0;
-  const shellSizes = useMemo(() => getShellSizes(notch), [notch]);
+  const shellSizes = useMemo(() => getShellSizes(notch, calibration), [notch, calibration]);
   const shellSize = shellSizes[mode];
+
+  const notchSafeWidth = useMemo(() => {
+    return notch?.hasNotch
+      ? notch.width * calibration.widthScale + calibration.notchSafePadding * 2
+      : 0;
+  }, [notch, calibration]);
 
   // Clear optimistic flag once backend confirms a non-idle state
   useEffect(() => {
@@ -123,6 +140,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           style={{
             scale: 1,
             "--notch-height": `${notchHeight}px`,
+            "--notch-safe-width": `${notchSafeWidth}px`,
           } as React.CSSProperties}
         >
           {/* Subtle audio-reactive glow halo */}
@@ -138,10 +156,10 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
 
           <AnimatePresence mode="wait" initial={false}>
             {mode === "compact" && (
-              <CompactMode state={state} connected={connected} />
+              <CompactMode state={state} connected={connected} hasNotch={notch?.hasNotch ?? false} />
             )}
             {mode === "listening" && (
-              <ListeningMode audioLevel={audioLevel} />
+              <ListeningMode audioLevel={audioLevel} hasNotch={notch?.hasNotch ?? false} />
             )}
             {mode === "speaking" && (
               <SpeakingMode
@@ -149,6 +167,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
                 audioLevel={audioLevel}
                 thinking={state === "thinking"}
                 preparing={state === "preparing_audio"}
+                hasNotch={notch?.hasNotch ?? false}
               />
             )}
             {mode === "expanded" && (
