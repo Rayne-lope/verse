@@ -1147,7 +1147,12 @@ class Orchestrator:
                 self.recorder.stop_recording()
             except Exception:
                 pass
-        self.state_machine.force_idle()
+        
+        # Only force IDLE if we are actively listening (or in an error state).
+        # If the backend is currently THINKING or SPEAKING, let the turn complete naturally
+        # so that window blur (e.g. from launching a browser) does not abort the response.
+        if self.state_machine.state in (State.LISTENING, State.ERROR):
+            self.state_machine.force_idle()
 
     def _on_state_changed(self, event: StateChangedEvent) -> None:
         if event.state == State.IDLE:
