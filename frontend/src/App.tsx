@@ -3,7 +3,7 @@ import { useWebSocket } from "./hooks/useWebSocket";
 import { Bubble } from "./components/Bubble";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { OnboardingFlow } from "./components/OnboardingFlow";
-import { resizeWindow, setFullscreen, positionTopRight } from "./utils/window";
+import { resizeWindow, setFullscreen } from "./utils/window";
 import "./App.css";
 
 const BUBBLE_W = 180;
@@ -47,13 +47,7 @@ function App() {
     setDisplayMode(nextMode);
     localStorage.setItem("verse_display_mode", nextMode);
 
-    if (nextMode === "canvas") {
-      await setFullscreen(true);
-    } else {
-      await setFullscreen(false);
-      await resizeWindow(BUBBLE_W, BUBBLE_H);
-      await positionTopRight(BUBBLE_W);
-    }
+    await setFullscreen(nextMode === "canvas", BUBBLE_W);
   }, [displayMode]);
 
   const handleOpenSettings = useCallback(() => {
@@ -90,7 +84,7 @@ function App() {
 
   useEffect(() => {
     if (displayMode === "canvas") {
-      setFullscreen(true);
+      setFullscreen(true, BUBBLE_W);
     }
   }, []);
 

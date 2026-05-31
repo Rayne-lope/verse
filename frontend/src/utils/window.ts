@@ -8,18 +8,33 @@ export async function resizeWindow(width: number, height: number): Promise<void>
   }
 }
 
-export async function setFullscreen(fullscreen: boolean): Promise<void> {
+export async function setFullscreen(fullscreen: boolean, bubbleWidth: number = 180): Promise<void> {
   try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
+    const { PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/dpi");
     const win = getCurrentWindow();
+    const monitor = await currentMonitor();
+
     if (fullscreen) {
-      await win.setResizable(true);
-      await win.setMaximizable(true);
-      await win.setFullscreen(true);
+      if (monitor) {
+        const width = monitor.size.width;
+        const height = monitor.size.height;
+        const x = monitor.position.x;
+        const y = monitor.position.y;
+
+        await win.setResizable(true);
+        await win.setPosition(new PhysicalPosition(x, y));
+        await win.setSize(new PhysicalSize(width, height));
+      }
     } else {
-      await win.setFullscreen(false);
-      await win.setResizable(false);
-      await win.setMaximizable(false);
+      if (monitor) {
+        const scaleFactor = monitor.scaleFactor;
+        const size = Math.round(bubbleWidth * scaleFactor);
+        
+        await win.setSize(new PhysicalSize(size, size));
+        await positionTopRight(bubbleWidth);
+        await win.setResizable(false);
+      }
     }
   } catch {
     // browser preview or non-Tauri env — ignore
