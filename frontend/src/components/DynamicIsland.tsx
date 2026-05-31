@@ -123,6 +123,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           layoutId="island-shell"
           className="island-shell"
           data-mode={mode}
+          data-has-notch={notch?.hasNotch ? "true" : "false"}
           data-clickable={connected ? "" : undefined}
           onClick={handleShellClick}
           onContextMenu={handleContextMenu}

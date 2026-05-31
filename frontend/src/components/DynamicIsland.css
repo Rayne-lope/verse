@@ -47,14 +47,15 @@
   pointer-events: auto;
   box-sizing: border-box;
   padding-top: var(--notch-height, 0px);
-  background: oklch(0% 0 0 / 0.96);
+  --shell-bg: oklch(0% 0 0 / 0.96);
+  background: var(--shell-bg);
   color: oklch(96% 0.01 var(--island-hue));
   border: 1px solid oklch(100% 0 0 / 0.06);
   box-shadow:
     0 8px 24px oklch(0% 0 0 / 0.45),
     0 2px 6px oklch(0% 0 0 / 0.35),
     inset 0 1px 0 oklch(100% 0 0 / 0.05);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -70,7 +71,8 @@
 }
 
 .island-shell[data-clickable]:hover {
-  background: oklch(4% 0 0 / 0.96);
+  --shell-bg: oklch(4% 0 0 / 0.96);
+  background: var(--shell-bg);
 }
 
 .island-shell[data-mode="expanded"] {
@@ -82,9 +84,37 @@
 /* Compact mode = visual extension of the notch. Remove border/shadow so
    the pill blends seamlessly with the black notch surface. */
 .island-shell[data-mode="compact"] {
-  background: #000;
+  --shell-bg: #000;
+  background: var(--shell-bg);
   border-color: transparent;
   box-shadow: none;
+}
+
+/* Concave corner fillets for Mac bezel integration */
+.island-shell[data-has-notch="true"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -16px;
+  width: 16px;
+  height: 16px;
+  background: var(--shell-bg);
+  border-bottom-right-radius: 16px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.island-shell[data-has-notch="true"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -16px;
+  width: 16px;
+  height: 16px;
+  background: var(--shell-bg);
+  border-bottom-left-radius: 16px;
+  pointer-events: none;
+  z-index: 1;
 }
 
 /* Audio-reactive glow halo behind the shell (sits inside, no layout impact) */
