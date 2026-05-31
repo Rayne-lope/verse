@@ -15,6 +15,10 @@ MSG_TOOL_EXECUTED = "tool_executed"
 MSG_ERROR = "error"
 MSG_MIC_STATUS = "mic_status"
 
+# Streaming STT partial transcript events
+MSG_USER_PARTIAL_TRANSCRIPT = "user_partial_transcript"
+MSG_USER_FINAL_TRANSCRIPT = "user_final_transcript"
+
 
 def state_change_message(event: StateChangedEvent) -> dict[str, Any]:
     return {"type": MSG_STATE_CHANGE, "state": str(event.state)}
@@ -108,3 +112,16 @@ def config_updated_message(success: bool, error: str | None = None) -> dict[str,
 
 def api_key_set_message(key_name: str, success: bool) -> dict[str, Any]:
     return {"type": MSG_API_KEY_SET, "key_name": key_name, "success": success}
+
+
+# --- Streaming STT messages ------------------------------------------------
+
+
+def user_partial_transcript_message(
+    text: str, stability: float | None = None
+) -> dict[str, Any]:
+    return {"type": MSG_USER_PARTIAL_TRANSCRIPT, "text": text, "stability": stability}
+
+
+def user_final_transcript_message(text: str) -> dict[str, Any]:
+    return {"type": MSG_USER_FINAL_TRANSCRIPT, "text": text}

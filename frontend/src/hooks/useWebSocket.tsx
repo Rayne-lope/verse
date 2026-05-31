@@ -18,6 +18,7 @@ export interface WebSocketContextValue {
   lastState: VerseState | null;
   audioLevel: number;
   transcript: string;
+  userPartialTranscript: string;
   assistantText: string;
   micStatus: MicStatusMessage | null;
   config: VerseConfig | null;
@@ -40,6 +41,7 @@ export function WebSocketProvider({
   const [lastState, setLastState] = useState<VerseState | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
   const [transcript, setTranscript] = useState("");
+  const [userPartialTranscript, setUserPartialTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
   const [micStatus, setMicStatus] = useState<MicStatusMessage | null>(null);
   const [config, setConfig] = useState<VerseConfig | null>(null);
@@ -79,6 +81,7 @@ export function WebSocketProvider({
         setLastState(message.state);
         if (message.state === "listening") {
           setTranscript("");
+          setUserPartialTranscript("");
           setAssistantText("");
         }
         break;
@@ -90,6 +93,13 @@ export function WebSocketProvider({
         break;
       case "transcript":
         setTranscript(message.text);
+        break;
+      case "user_partial_transcript":
+        setUserPartialTranscript(message.text);
+        break;
+      case "user_final_transcript":
+        setTranscript(message.text);
+        setUserPartialTranscript("");
         break;
       case "assistant_text":
         setAssistantText(message.text);
@@ -177,6 +187,7 @@ export function WebSocketProvider({
       lastState,
       audioLevel,
       transcript,
+      userPartialTranscript,
       assistantText,
       micStatus,
       config,
@@ -184,7 +195,7 @@ export function WebSocketProvider({
       onboardingNeeded,
       send,
     }),
-    [connectionStatus, lastState, audioLevel, transcript, assistantText, micStatus, config, apiKeys, onboardingNeeded, send]
+    [connectionStatus, lastState, audioLevel, transcript, userPartialTranscript, assistantText, micStatus, config, apiKeys, onboardingNeeded, send]
   );
 
   return (

@@ -19,7 +19,7 @@ interface DynamicIslandProps {
 const OPTIMISTIC_LISTENING_MS = 1200;
 
 export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandProps) {
-  const { connectionStatus, lastState, audioLevel, transcript, assistantText, micStatus, send } = useWebSocket();
+  const { connectionStatus, lastState, audioLevel, transcript, userPartialTranscript, assistantText, micStatus, send } = useWebSocket();
   const state = lastState ?? "idle";
   const connected = connectionStatus === "open";
 
@@ -178,6 +178,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
               <ExpandedMode
                 state={state}
                 transcript={transcript}
+                userPartialTranscript={userPartialTranscript}
                 assistantText={assistantText}
                 audioLevel={audioLevel}
                 micActive={micActive}

@@ -15,6 +15,8 @@ from verse.ws.protocol import (
     tool_executed_message,
     transcript_message,
     pipeline_event_message,
+    user_partial_transcript_message,
+    user_final_transcript_message,
 )
 from verse.ws.server import WebSocketServer
 
@@ -145,6 +147,17 @@ def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
     engine.on_pipeline_event = lambda stage, event, metadata: ws_server.enqueue(
         pipeline_event_message(stage, event, **metadata)
     )
+    # Streaming STT partial/final transcript callbacks (P6)
+    if hasattr(engine, "on_user_partial_transcript"):
+        engine.on_user_partial_transcript = (
+            lambda text, stability=None: ws_server.enqueue(
+                user_partial_transcript_message(text, stability)
+            )
+        )
+    if hasattr(engine, "on_user_final_transcript"):
+        engine.on_user_final_transcript = (
+            lambda text: ws_server.enqueue(user_final_transcript_message(text))
+        )
 
 
 class _AlwaysOnRuntime:

@@ -28,6 +28,17 @@ export interface TranscriptMessage {
   partial: boolean;
 }
 
+export interface UserPartialTranscriptMessage {
+  type: "user_partial_transcript";
+  text: string;
+  stability: number | null;
+}
+
+export interface UserFinalTranscriptMessage {
+  type: "user_final_transcript";
+  text: string;
+}
+
 export interface AssistantTextMessage {
   type: "assistant_text";
   text: string;
@@ -105,6 +116,8 @@ export type IncomingMessage =
   | AudioLevelMessage
   | MicStatusMessage
   | TranscriptMessage
+  | UserPartialTranscriptMessage
+  | UserFinalTranscriptMessage
   | AssistantTextMessage
   | ToolExecutedMessage
   | ErrorMessage

@@ -7,6 +7,7 @@ import type { VerseState } from "../../types/ws";
 interface ExpandedProps {
   state: VerseState;
   transcript: string;
+  userPartialTranscript: string;
   assistantText: string;
   audioLevel: number;
   micActive: boolean;
@@ -20,6 +21,7 @@ interface ExpandedProps {
 function ExpandedInner({
   state,
   transcript,
+  userPartialTranscript,
   assistantText,
   audioLevel,
   micActive,
@@ -37,7 +39,9 @@ function ExpandedInner({
     state === "error" ? "Error" :
     "Verse";
 
-  const displayText = assistantText || transcript || (state === "idle" ? "Tap mic to start a conversation." : "");
+  // Show user partial transcript while listening (before speech ends)
+  // Fall back to final transcript, then to assistant text
+  const displayText = assistantText || transcript || userPartialTranscript || (state === "idle" ? "Tap mic to start a conversation." : "");
 
   return (
     <motion.div
@@ -67,7 +71,7 @@ function ExpandedInner({
         <div className="island-expanded-viz">
           <Waveform audioLevel={audioLevel} bars={32} height={44} barWidth={3} gap={3} />
         </div>
-        <p className="island-expanded-text">{displayText}</p>
+        <p className={`island-expanded-text${userPartialTranscript && !transcript ? " is-partial" : ""}`}>{displayText}</p>
       </div>
 
       <div className="island-expanded-controls">

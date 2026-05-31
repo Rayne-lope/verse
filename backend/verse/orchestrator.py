@@ -14,7 +14,7 @@ from verse.audio.streaming_player import StreamingPlayer
 from verse.latency import LatencyTracker
 from verse.llm.base import LLMAdapter
 from verse.state import State, StateMachine, StateChangedEvent
-from verse.stt.base import STTAdapter
+from verse.stt.base import STTAdapter, STTEvent
 from verse.tools.registry import ToolRegistry
 from verse.tts.base import TTSAdapter, RealtimeTTSAdapter
 from verse.persistence.debug_logger import DebugSessionLogger
@@ -91,6 +91,22 @@ CANNED_ACKNOWLEDGEMENTS = {
     "complete_reminder": "Bentar, aku selesaikan pengingat dulu.",
 }
 
+# Intents safe to execute from stable partial transcripts (low-risk, reversible).
+# Only these intents can trigger early execution before endpointing.
+SAFE_LOCAL_INTENTS: frozenset[str] = frozenset({
+    "system.set_volume",
+    "system.get_volume",
+    "system.set_muted",
+    "music.pause",
+    "music.resume",
+    "music.play",
+    "system.get_time",
+    "system.get_brightness",
+})
+
+# Minimum stability (0.0–1.0) before a partial transcript is trusted for early execution.
+EARLY_INTENT_STABILITY_THRESHOLD = 0.70
+
 
 class Orchestrator:
     def __init__(
@@ -108,6 +124,8 @@ class Orchestrator:
         on_assistant_text: Callable[[str], None] | None = None,
         on_tool_executed: Callable[[str, str], None] | None = None,
         on_audio_level: Callable[[float], None] | None = None,
+        on_user_partial_transcript: Callable[[str, float | None], None] | None = None,
+        on_user_final_transcript: Callable[[str], None] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_tool_iterations: int | None = None,
         vad_manager: Any | None = None,
@@ -130,6 +148,8 @@ class Orchestrator:
         self.on_assistant_text = on_assistant_text
         self.on_tool_executed = on_tool_executed
         self.on_audio_level = on_audio_level
+        self.on_user_partial_transcript = on_user_partial_transcript
+        self.on_user_final_transcript = on_user_final_transcript
         self.system_prompt = system_prompt
         self.max_tool_iterations = (
             max_tool_iterations
@@ -189,6 +209,15 @@ class Orchestrator:
         self._playback_stop_event: threading.Event | None = None
         self._barge_in_requested = False
         self._barge_in_handled = False
+
+        # --- Streaming STT state ----------------------------------------
+        self._streaming_stt_active = False
+        self._streaming_stt_task: asyncio.Task | None = None
+        self._streaming_audio_buffer = bytearray()
+        self._streaming_last_send_time = 0.0
+        self._early_intent_executed = False
+        self._last_partial_text = ""  # partial transcript that triggered early intent
+        self._streaming_partial_interval_ms = 1000  # ms between partial STT calls
 
         self._current_turn_id: int | None = None
         self._current_vad_timeline: list[dict[str, Any]] = []
@@ -341,6 +370,14 @@ class Orchestrator:
             self._output_audio_bytes = None
             self._llm_messages = []
             self._llm_response = {}
+
+        # Reset streaming STT state for the new turn
+        self._streaming_stt_active = False
+        self._early_intent_executed = False
+        self._last_partial_text = ""
+        if self._streaming_stt_task is not None:
+            self._streaming_stt_task.cancel()
+            self._streaming_stt_task = None
 
         self._start_latency_tracker(self._current_turn_id)
         self._latency_mark("hotkey_down", auto=is_auto)
@@ -721,6 +758,164 @@ class Orchestrator:
         if self.on_assistant_text:
             self.on_assistant_text(reply)
         return reply
+
+    # --- Streaming STT partial transcript handling ---------------------------
+
+    def _try_local_intent_from_partial(
+        self, transcript: str, stability: float
+    ) -> str | None:
+        """Check whether a partial transcript is stable enough to trigger early
+        local intent execution before endpointing completes.
+
+        Only fires once per turn (guarded by _early_intent_executed) and only
+        for intents in SAFE_LOCAL_INTENTS with stability >= threshold.
+        """
+        if self._early_intent_executed:
+            return None
+        if stability < EARLY_INTENT_STABILITY_THRESHOLD:
+            return None
+        if len(transcript.strip()) < 3:
+            return None
+        if not self.config.intent.local_router_enabled:
+            return None
+
+        # Classify the partial transcript
+        category, confidence, requires_confirmation = fast_intent_classifier(
+            transcript
+        )
+        if requires_confirmation:
+            return None
+
+        # Route to local patterns
+        match = self.local_intent_router.route(transcript)
+        if match is None:
+            return None
+
+        # Only allow safe, low-risk intents to fire early
+        if match.intent not in SAFE_LOCAL_INTENTS:
+            return None
+
+        # Apply intent-specific threshold
+        if "volume" in match.intent:
+            threshold = 0.65
+        elif "reminder" in match.intent or "calendar" in match.intent:
+            threshold = 0.85
+        else:
+            threshold = self.config.intent.local_router_confidence_threshold
+
+        if match.confidence < threshold:
+            return None
+
+        if match.tool_name and not self._local_intent_tool_available(match.tool_name):
+            return None
+
+        # Mark as executed so we don't fire again for this turn
+        self._early_intent_executed = True
+        self._last_partial_text = transcript
+
+        if self.on_pipeline_event:
+            self.on_pipeline_event(
+                "intent",
+                "early_local_matched",
+                {
+                    "intent": match.intent,
+                    "confidence": match.confidence,
+                    "stability": stability,
+                    "partial": transcript,
+                },
+            )
+
+        reply = self._execute_local_intent(match)
+        if self.on_assistant_text:
+            self.on_assistant_text(reply)
+        return reply
+
+    async def _run_streaming_stt_task(self) -> None:
+        """Background task that reads audio chunks from the recorder and sends
+        them to the streaming STT adapter every _streaming_partial_interval_ms.
+
+        Emits partial transcript events via on_user_partial_transcript and
+        checks for early local intent from stable partials.
+
+        This task is spawned from _run_vad_loop and cancelled when VAD endpoints.
+        """
+        import numpy as np
+
+        buffer = bytearray()
+        last_send_time = 0.0
+        interval_s = self._streaming_partial_interval_ms / 1000.0
+        prev_partial_text = ""
+        prev_stable_since = 0.0
+        import time as time_module
+
+        async def send_partial() -> tuple[str, float] | None:
+            nonlocal last_send_time, prev_partial_text, prev_stable_since
+            if len(buffer) < 8000:  # ~0.5s of audio at 16kHz
+                return None
+            audio_bytes = bytes(buffer)
+            try:
+                result = await self.stt.transcribe(audio_bytes, language=None)
+            except Exception:
+                return None
+            text = result.strip()
+            if not text:
+                return None
+
+            now = time_module.time()
+            # Compute a rough stability: 0.5 + 0.5 * (1 - time_delta / 3.0)
+            # Clamped to [0.5, 1.0]. Stability grows as the transcript stays
+            # the same across consecutive calls.
+            if text == prev_partial_text:
+                elapsed = now - prev_stable_since
+                stability = min(1.0, 0.5 + 0.5 * min(elapsed / 1.5, 1.0))
+            else:
+                stability = 0.5
+                prev_partial_text = text
+                prev_stable_since = now
+
+            last_send_time = now
+            return (text, stability)
+
+        try:
+            while self._streaming_stt_active and self.recorder and self.recorder.is_recording:
+                try:
+                    chunk = await asyncio.wait_for(
+                        self.recorder.read_chunk(), timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+                except RuntimeError:
+                    # Recording stopped — exit gracefully
+                    break
+
+                # Convert float32 samples to int16 PCM bytes and accumulate
+                flat = np.asarray(chunk, dtype=np.float32).reshape(-1)
+                int16_data = (np.clip(flat, -1.0, 1.0) * 32767).astype(
+                    np.int16
+                )
+                buffer.extend(int16_data.tobytes())
+
+                # Check if it's time to send a partial
+                now = time_module.time()
+                if now - last_send_time >= interval_s:
+                    result = await send_partial()
+                    if result is not None:
+                        text, stability = result
+                        if self.on_user_partial_transcript:
+                            self.on_user_partial_transcript(text, stability)
+
+                        # Check for early local intent from stable partial
+                        early_reply = self._try_local_intent_from_partial(
+                            text, stability
+                        )
+                        if early_reply is not None:
+                            self._streaming_stt_active = False
+                            break
+
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            pass
 
     def _local_intent_tool_available(self, tool_name: str) -> bool:
         if self.config.tools.enabled is not None and tool_name not in self.config.tools.enabled:
@@ -1305,6 +1500,11 @@ class Orchestrator:
         import time
         import numpy as np
 
+        # Activate streaming STT and spawn the background task
+        loop = asyncio.get_running_loop()
+        self._streaming_stt_active = True
+        self._streaming_stt_task = loop.create_task(self._run_streaming_stt_task())
+
         last_send_time = 0.0
         prev_state = VADState.WAITING_FOR_SPEECH
         # Rolling buffer so VAD always sees exactly-256-sample frames regardless
@@ -1500,12 +1700,29 @@ class Orchestrator:
 
                 if terminal_state is VADState.ENDED:
                     self._auto_listening = False
+                    # Cancel and await the streaming STT task before stopping the recorder
+                    if self._streaming_stt_task is not None:
+                        self._streaming_stt_active = False
+                        self._streaming_stt_task.cancel()
+                        try:
+                            await self._streaming_stt_task
+                        except asyncio.CancelledError:
+                            pass
+                        self._streaming_stt_task = None
                     self._cancel_vad_task()
                     print("Processing...")
                     await self._auto_respond_with_utterance(terminal_chunks)
                     break
                 elif terminal_state is VADState.TIMEOUT:
                     self._auto_listening = False
+                    if self._streaming_stt_task is not None:
+                        self._streaming_stt_active = False
+                        self._streaming_stt_task.cancel()
+                        try:
+                            await self._streaming_stt_task
+                        except asyncio.CancelledError:
+                            pass
+                        self._streaming_stt_task = None
                     self._cancel_vad_task()
                     if self.on_pipeline_event:
                         self.on_pipeline_event(
@@ -1555,6 +1772,21 @@ class Orchestrator:
                 return
 
             self.state_machine.hotkey_released()
+
+            # If early local intent was executed from a stable partial transcript,
+            # skip the full STT call and emit the final transcript directly.
+            if self._early_intent_executed:
+                self._latency_mark("stt_skipped_early_intent")
+                partial_text = getattr(self, "_last_partial_text", "") or ""
+                if self.on_user_final_transcript and partial_text:
+                    self.on_user_final_transcript(partial_text)
+                if self.on_pipeline_event:
+                    self.on_pipeline_event("stt", "skipped_early_intent", {})
+                # Early intent already spoke a canned reply; return to listening
+                if self.conversation_mode_active:
+                    self.start_auto_listening()
+                return
+
             await self.handle_audio(audio)
         except Exception as exc:
             self._report_auto_recoverable_error("auto_utterance_failed", exc)
