@@ -13,7 +13,7 @@ export const DEFAULT_ISLAND_CALIBRATION: IslandCalibration = {
   yOffset: 0,
   widthScale: 1.0,
   heightScale: 1.0,
-  attachOverlap: 2,
+  attachOverlap: 32,
   bottomRadius: 20,
   notchSafePadding: 16,
 };

@@ -61,7 +61,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
   return {
     compact: {
       width: compactW,
-      height: (hCompact * calibration.heightScale) + (hasNotch ? 1 : 0),
+      height: hCompact * calibration.heightScale,
       borderTopLeftRadius: hasNotch ? 0 : hCompact / 2,
       borderTopRightRadius: hasNotch ? 0 : hCompact / 2,
       borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : hCompact / 2,
@@ -69,7 +69,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
     },
     listening: {
       width: compactW + 220,
-      height: hasNotch ? (hCompact * calibration.heightScale) + 1 : listeningH,
+      height: hasNotch ? hCompact * calibration.heightScale : listeningH,
       borderTopLeftRadius: hasNotch ? 0 : hListening / 2,
       borderTopRightRadius: hasNotch ? 0 : hListening / 2,
       borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : hListening / 2,
@@ -77,7 +77,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
     },
     speaking: {
       width: compactW + 280,
-      height: hasNotch ? (hCompact * calibration.heightScale) + 1 : speakingH,
+      height: hasNotch ? hCompact * calibration.heightScale : speakingH,
       borderTopLeftRadius: hasNotch ? 0 : hSpeaking / 2,
       borderTopRightRadius: hasNotch ? 0 : hSpeaking / 2,
       borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : hSpeaking / 2,
@@ -93,7 +93,7 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
     },
     error: {
       width: compactW + 120,
-      height: hasNotch ? (hCompact * calibration.heightScale) + 1 : errorH,
+      height: hasNotch ? hCompact * calibration.heightScale : errorH,
       borderTopLeftRadius: hasNotch ? 0 : hError / 2,
       borderTopRightRadius: hasNotch ? 0 : hError / 2,
       borderBottomLeftRadius: hasNotch ? calibration.bottomRadius : hError / 2,
