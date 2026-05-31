@@ -23,7 +23,7 @@ declare global {
 }
 
 function App() {
-  const { connectionStatus, lastState, micStatus, send, onboardingNeeded } = useWebSocket();
+  const { connectionStatus, lastState, micStatus, send, onboardingNeeded, transcript, assistantText } = useWebSocket();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [displayMode, setDisplayMode] = useState<"widget" | "canvas">(() => {
@@ -179,6 +179,30 @@ function App() {
       )}
 
       <Bubble onOpenSettings={handleOpenSettings} />
+
+      {displayMode === "canvas" && (transcript || assistantText) && (
+        <div className="canvas-subtitles">
+          {transcript && (
+            <div className="subtitle-line user-line">
+              <span className="subtitle-icon user-icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+              </span>
+              <p className="subtitle-text">{transcript}</p>
+            </div>
+          )}
+          {assistantText && (
+            <div className="subtitle-line assistant-line">
+              <span className="subtitle-icon assistant-icon">
+                <span className="pulsing-dot" />
+              </span>
+              <p className="subtitle-text">{assistantText}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div
         className="ws-status"

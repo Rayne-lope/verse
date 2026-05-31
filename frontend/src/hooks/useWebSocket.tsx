@@ -77,6 +77,10 @@ export function WebSocketProvider({
     switch (message.type) {
       case "state_change":
         setLastState(message.state);
+        if (message.state === "listening") {
+          setTranscript("");
+          setAssistantText("");
+        }
         break;
       case "audio_level":
         setAudioLevel(message.level);
