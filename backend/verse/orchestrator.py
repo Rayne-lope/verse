@@ -7,7 +7,8 @@ import threading
 from typing import Any, Callable
 
 from verse.config import AppConfig
-from verse.intent import LocalIntentMatch, LocalIntentRouter
+from verse.intent import LocalIntentMatch, LocalIntentRouter, IntentCategory, fast_intent_classifier
+from verse.tools import ToolSelector
 from verse.latency import LatencyTracker
 from verse.llm.base import LLMAdapter
 from verse.state import State, StateMachine, StateChangedEvent
@@ -122,6 +123,7 @@ class Orchestrator:
             else self.config.voice.max_tool_iterations
         )
         self.local_intent_router = LocalIntentRouter()
+        self.tool_selector = ToolSelector(self.config.tools.enabled or self.registry.names())
 
         self.pre_vad_audio_hook = pre_vad_audio_hook
         self.post_recording_audio_hook = post_recording_audio_hook
@@ -466,7 +468,9 @@ class Orchestrator:
             *base_history,
             {"role": "user", "content": transcript},
         ]
-        definitions = self.registry.list_definitions(self.config.tools.enabled)
+        category, _, _ = fast_intent_classifier(transcript)
+        selected_tools = self.tool_selector.select(transcript, category)
+        definitions = self.registry.list_definitions(selected_tools)
         tools = definitions or None
 
         reply = ""
@@ -631,11 +635,26 @@ class Orchestrator:
         if not self.config.intent.local_router_enabled:
             return None
 
+        # 1. Classification prior to routing
+        category, _, requires_confirmation = fast_intent_classifier(transcript)
+
+        # 2. Search local matched intents
         match = self.local_intent_router.route(transcript)
         if match is None:
             return None
 
-        threshold = self.config.intent.local_router_confidence_threshold
+        # 3. Dynamic thresholds based on action risk
+        if "volume" in match.intent:
+            threshold = 0.65
+        elif "reminder" in match.intent or "calendar" in match.intent or "event" in match.intent:
+            threshold = 0.85
+        else:
+            threshold = self.config.intent.local_router_confidence_threshold
+
+        # Flag actions requiring confirmation by routing them to the LLM path instead of local
+        if requires_confirmation or match.intent == "message.send" or "delete" in match.intent:
+            return None
+
         if match.confidence < threshold:
             if self.on_pipeline_event:
                 self.on_pipeline_event(
@@ -670,6 +689,7 @@ class Orchestrator:
                     "intent": match.intent,
                     "confidence": match.confidence,
                     "tool": match.tool_name,
+                    "category": category.value,
                 },
             )
 
