@@ -27,10 +27,16 @@ body,
   justify-content: center;
   align-items: center;
   position: relative;
-  background: transparent;
+  background: transparent !important;
+  background-color: transparent !important;
   user-select: none;
   cursor: default;
-  transition: background-image 500ms ease, background-color 500ms ease;
+}
+
+.shell-surface[data-display-mode="widget"] {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
 }
 
 /* Assistant active state theme colors */
@@ -61,12 +67,13 @@ body,
 
 /* Canvas Mode Fullscreen Styles */
 .shell-surface[data-display-mode="canvas"] {
-  background-color: oklch(10% 0.005 250);
+  background-color: oklch(10% 0.005 250) !important;
   background-image:
     radial-gradient(circle at center, oklch(65% var(--glow-chroma) var(--glow-hue) / 0.08) 0%, transparent 60%),
-    radial-gradient(oklch(100% 0 0 / 0.12) 1.2px, transparent 1.2px);
+    radial-gradient(oklch(100% 0 0 / 0.12) 1.2px, transparent 1.2px) !important;
   background-size: 100% 100%, 28px 28px;
   background-position: center;
+  transition: background-color 500ms ease, background-image 500ms ease;
   animation: canvasFadeIn 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
