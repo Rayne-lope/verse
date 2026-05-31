@@ -11,7 +11,16 @@ export async function resizeWindow(width: number, height: number): Promise<void>
 export async function setFullscreen(fullscreen: boolean): Promise<void> {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().setFullscreen(fullscreen);
+    const win = getCurrentWindow();
+    if (fullscreen) {
+      await win.setResizable(true);
+      await win.setMaximizable(true);
+      await win.setFullscreen(true);
+    } else {
+      await win.setFullscreen(false);
+      await win.setResizable(false);
+      await win.setMaximizable(false);
+    }
   } catch {
     // browser preview or non-Tauri env — ignore
   }
