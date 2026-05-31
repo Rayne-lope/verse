@@ -20,7 +20,12 @@ DEFAULT_SYSTEM_PROMPT = (
     "Reply in the same language the user speaks. "
     "Keep answers short and natural since they will be spoken aloud. "
     "Use the available tools to control music, open apps, search the web, "
-    "or check the time when the user asks for those actions."
+    "or check the time when the user asks for those actions. "
+    "CRITICAL: When the user asks to change or check system settings (volume, brightness, mute, dark mode, DND), "
+    "you MUST always call the respective tool first in the same turn. "
+    "NEVER guess, assume, or claim that a setting has changed or been checked unless you have successfully executed the tool. "
+    "If the user provides a standalone setting parameter (e.g., '30', 'gelap', 'terang') during a settings conversation, "
+    "treat it as a command to adjust that setting and call the tool immediately."
 )
 
 logger = logging.getLogger(__name__)
@@ -600,7 +605,54 @@ class Orchestrator:
                 },
             }
         )
-        return result.strip()
+        # Use our smart generator to transform raw tool outputs to premium conversational responses
+        return self._generate_conversational_reply(match.intent, match.arguments, result.strip())
+
+    def _generate_conversational_reply(self, intent: str, arguments: dict[str, Any], result: str) -> str:
+        # If the tool execution failed or returned custom guidance, return the raw result
+        if result.startswith("Failed") or result.startswith("I cannot") or "failed" in result.lower():
+            return result
+
+        # Since our user is Indonesian, we default to Indonesian for a warm personal touch
+        if intent == "system.set_volume":
+            level = arguments.get("level", 50)
+            return f"Siap, volume sekarang sudah diatur ke {level}%, Rafi! 🔉"
+            
+        elif intent == "system.get_volume":
+            import re
+            match = re.search(r"\d+", result)
+            level = match.group(0) if match else "50"
+            return f"Volume sistem saat ini berada di {level}%, Rafi. 🔊"
+            
+        elif intent == "system.set_muted":
+            muted = arguments.get("muted", False)
+            if muted:
+                return "Suara sistem sudah dimatikan ya, Rafi. 🔕"
+            return "Suara sistem sudah dinyalakan kembali, Rafi. 🔊"
+                
+        elif intent == "system.set_dark_mode":
+            enabled = arguments.get("enabled", False)
+            if enabled:
+                return "Mode gelap sudah aktif, Rafi. 🌚"
+            return "Mode terang sudah aktif, Rafi. ☀️"
+                
+        elif intent == "system.set_dnd":
+            enabled = arguments.get("enabled", False)
+            if enabled:
+                return "Do Not Disturb sudah aktif. Kamu nggak bakal diganggu notifikasi dulu, Rafi. 😎🔕"
+            return "Do Not Disturb sudah dimatikan, Rafi. Notifikasi siap masuk lagi! 😊"
+                
+        elif intent == "system.set_brightness":
+            level = arguments.get("level", 50)
+            return f"Siap, kecerahan layar sudah diatur ke {level}%, Rafi! ☀️"
+            
+        elif intent == "system.get_brightness":
+            import re
+            match = re.search(r"\d+", result)
+            level = match.group(0) if match else "50"
+            return f"Kecerahan layar saat ini berada di {level}%, Rafi. ☀️"
+
+        return result
 
     def _run_tool(self, tool_call: dict[str, Any]) -> str:
         name = tool_call.get("function", {}).get("name", "")

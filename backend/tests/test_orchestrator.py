@@ -487,3 +487,37 @@ def test_clean_markdown_for_tts():
     assert "Kerja: Kirim email ke Rayne." in cleaned
     assert "*" not in cleaned
     assert "**" not in cleaned
+
+
+def test_conversational_local_intent_replies(monkeypatch):
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="set_volume",
+            description="set volume",
+            parameters={"type": "object", "properties": {"level": {"type": "integer"}}},
+            handler=lambda level: f"System volume set to {level}%.",
+        )
+    )
+    
+    machine = StateMachine(initial_state=State.THINKING)
+    stt = FakeSTT("kecilin volume")
+    llm = FakeLLM([])
+    tts = FakeTTS()
+    
+    orch, played = _orchestrator(
+        stt,
+        llm,
+        tts,
+        registry,
+        machine,
+        config=AppConfig(tools=ToolsConfig(enabled=["set_volume"])),
+    )
+    
+    reply = asyncio.run(orch.handle_audio(b"audio"))
+    
+    # Verify that the reply is in friendly Indonesian instead of raw "System volume set to 25%."
+    assert "diatur ke 25%" in reply
+    assert "Rafi" in reply
+    assert tts.spoken == [reply + "."]
+    assert played == [(reply + ".").encode()]
