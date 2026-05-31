@@ -81,8 +81,20 @@
   justify-content: flex-start;
 }
 
-/* Compact mode = visual extension of the notch. Remove border/shadow so
-   the pill blends seamlessly with the black notch surface. */
+/* Compact & active modes under a hardware notch = visual extension of the notch.
+   Remove border/shadow, set pure black background, and clear padding-top so
+   waveforms/icons center vertically. */
+.island-shell[data-has-notch="true"][data-mode="compact"],
+.island-shell[data-has-notch="true"][data-mode="listening"],
+.island-shell[data-has-notch="true"][data-mode="speaking"],
+.island-shell[data-has-notch="true"][data-mode="error"] {
+  --shell-bg: #000;
+  background: var(--shell-bg);
+  border-color: transparent;
+  box-shadow: none;
+  padding-top: 0 !important;
+}
+
 .island-shell[data-mode="compact"] {
   --shell-bg: #000;
   background: var(--shell-bg);
