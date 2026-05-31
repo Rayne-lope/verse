@@ -104,6 +104,16 @@ class VADConfig:
 
 
 @dataclass(frozen=True)
+class AlwaysOnConfig:
+    enabled: bool = False
+    keyword: str = ""
+    keyword_path: str = "~/.verse/wake/hey_verse.ppn"
+    model_path: str = ""
+    sensitivity: float = 0.65
+    device: str = "cpu"
+
+
+@dataclass(frozen=True)
 class GeminiLiveConfig:
     model: str = "gemini-2.5-flash-preview-native-audio-dialog"
     voice_name: str = "Puck"
@@ -138,6 +148,7 @@ class AppConfig:
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     intent: IntentConfig = field(default_factory=IntentConfig)
     vad: VADConfig = field(default_factory=VADConfig)
+    always_on: AlwaysOnConfig = field(default_factory=AlwaysOnConfig)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
@@ -278,6 +289,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
     tools = raw_config.get("tools", {})
     intent = raw_config.get("intent", {})
     vad = raw_config.get("vad", {})
+    always_on = raw_config.get("always_on", {})
     voice_raw = raw_config.get("voice", {})
     gl_raw = voice_raw.get("gemini_live", {})
 
@@ -345,6 +357,18 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             max_utterance_ms=int(vad.get("max_utterance_ms", VADConfig.max_utterance_ms)),
             pre_roll_ms=int(vad.get("pre_roll_ms", VADConfig.pre_roll_ms)),
             followup_timeout_s=float(vad.get("followup_timeout_s", VADConfig.followup_timeout_s)),
+        ),
+        always_on=AlwaysOnConfig(
+            enabled=_as_bool(always_on.get("enabled"), AlwaysOnConfig.enabled),
+            keyword=str(always_on.get("keyword", AlwaysOnConfig.keyword)),
+            keyword_path=str(
+                always_on.get("keyword_path", AlwaysOnConfig.keyword_path)
+            ),
+            model_path=str(always_on.get("model_path", AlwaysOnConfig.model_path)),
+            sensitivity=float(
+                always_on.get("sensitivity", AlwaysOnConfig.sensitivity)
+            ),
+            device=str(always_on.get("device", AlwaysOnConfig.device)),
         ),
         voice=VoiceConfig(
             engine=str(voice_raw.get("engine", VoiceConfig.engine)),

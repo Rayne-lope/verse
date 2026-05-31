@@ -1,5 +1,430 @@
 [
   {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T05:12:41Z",
+    "created_at" : "2026-05-31T05:11:16Z",
+    "description" : "Ensure bubble activation works as one-click toggle instead of requiring a held press, and update user-facing onboarding copy to avoid hold-only guidance.",
+    "id" : "verse-2yj",
+    "issue_type" : "task",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Make bubble activation clearly click-toggle",
+    "updated_at" : "2026-05-31T05:12:41Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-31T04:58:26Z",
+    "created_at" : "2026-05-29T16:30:57Z",
+    "description" : "Ensure robust error recovery at each major pipeline stage (VAD init, STT timeouts, LLM\/TTS failures, tool exceptions, disconnects). Gracefully recover back to IDLE state, log codes, and notify frontend without silent crashes.",
+    "id" : "verse-vd4",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Implemented robust timeouts, early-exit disconnects, VAD init recovery, and state-based auto-listening re-arming. All 179 pytest tests passed.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Integrate Granular Error Recovery and Fallback Handling",
+    "updated_at" : "2026-05-31T04:58:26Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:54:37Z",
+    "created_at" : "2026-05-31T04:52:43Z",
+    "description" : "Add one-click bubble activation that toggles classic conversation listening via WebSocket and gives immediate smooth optimistic UI feedback.",
+    "id" : "verse-6k2",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Bubble click toggles classic listening mode",
+    "updated_at" : "2026-05-31T04:54:37Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:40:05Z",
+    "created_at" : "2026-05-31T04:36:09Z",
+    "description" : "Integrate Playwright browser automation tool set, configuration auto-migration, local intent routing, and session singleton management.",
+    "id" : "verse-4a1",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Implement Playwright Browser Agent with Brave reuse",
+    "updated_at" : "2026-05-31T04:40:05Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:25:36Z",
+    "created_at" : "2026-05-29T14:35:58Z",
+    "description" : "Why: Let user configure API keys, voice models, hotkeys, and Spotify connections.\nWhat:\n- Design and implement a settings panel in the Tauri frontend.\n- Connect panel inputs to backend configuration (saving to local config file).\n- Expose settings trigger icon in UI.",
+    "id" : "verse-8ea",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Settings UI",
+    "updated_at" : "2026-05-31T04:25:36Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:25:36Z",
+    "created_at" : "2026-05-29T14:36:02Z",
+    "description" : "Why: Welcome new users and guide them to set up required API keys (Groq, DeepSeek, Spotify).\nWhat:\n- Build onboarding flow \/ wizard in the React frontend.\n- Show onboarding automatically on first launch if no API keys \/ configurations are found.\n- Validate and save user entries to local configuration.",
+    "id" : "verse-o7m",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Onboarding flow (first-run API key setup)",
+    "updated_at" : "2026-05-31T04:25:36Z"
+  },
+  {
+    "assignee" : "me",
+    "closed_at" : "2026-05-31T04:07:51Z",
+    "created_at" : "2026-05-29T16:55:32Z",
+    "description" : "Why: Upgrade bubble dari placeholder lingkaran datar jadi orb translusen glossy yang hidup, premium, ekspresif, dan audio-reactive sesuai design Spline (soap bubble \/ glass orb iridescent + dua mata putih rounded-rectangle yang lucu). What: orb glossy iridescent, mata ekspresif, ekspresi per-state, audio-reactivity, integrasi ganti Bubble lama. Out of scope: backend\/TTS.",
+    "id" : "verse-000",
+    "issue_type" : "epic",
+    "notes" : "Epic baru terpisah dari Phase 3 (verse-jmf) karena fitur visual besar berdiri sendiri. Depends-on verse-ofk (scaffolding bubble basic). Rendering approach diputuskan via spike child pertama (user pilih: spike dulu).",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "[Epic] Premium Voice Bubble UI — glossy living orb + expressive eyes",
+    "updated_at" : "2026-05-31T04:07:51Z"
+  },
+  {
+    "acceptance_criteria" : "Orb merespons audioLevel secara halus saat listening & speaking, tidak jitter.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:07:51Z",
+    "created_at" : "2026-05-29T16:55:58Z",
+    "description" : "Why: Bubble harus terasa audio-reactive saat mendengar\/bicara. What: Hubungkan audioLevel (dari useWebSocket\/useAudioLevel) ke deformasi orb (wobble\/scale\/jelly) + reaksi mata saat listening\/speaking. Smooth pakai lerp, bukan jitter.",
+    "id" : "verse-brs",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Audio-reactivity: hook useAudioReactiveOrb.ts (rAF + lerp 0.15) nulis CSS var --audio (0-1) langsung ke style orb TANPA setState (no re-render 60fps). Gated: target=audioLevel saat state listening\/speaking, decay ke 0 saat lain. Bubble.tsx pakai orbRef + ambil audioLevel dari useWebSocket. CSS: listening\/speaking matikan breathe, scale: calc(1+--audio*0.14) + transition 80ms; glow box-shadow membesar ikut --audio; mata speaking scale vertikal ikut --audio (pakai properti scale: bukan transform agar tak bentrok blink). Verifikasi: build lulus; eye scale resolve 1.2 saat --audio=0.8 (bukti propagasi+calc); rAF loop terbukti aktif menulis --audio; 0 console error. Test manual penuh: jalankan backend + bicara, orb membesar\/glow ikut suara saat listening\/speaking.",
+    "parent_id" : "verse-000",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Audio-reactivity wiring bubble",
+    "updated_at" : "2026-05-31T04:07:51Z"
+  },
+  {
+    "acceptance_criteria" : "Bubble baru menggantikan yang lama, build lulus, animasi mulus, drag window tetap berfungsi, beban CPU\/baterai wajar.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:07:51Z",
+    "created_at" : "2026-05-29T16:56:03Z",
+    "description" : "Why: Finalisasi—gabungkan semua bagian dan pastikan performa. What: Ganti Bubble.tsx\/Bubble.css lama dengan implementasi baru, pastikan muat di window 112px, cek CPU\/GPU\/baterai saat animasi konstan, drag-region (data-tauri-drag-region) tetap jalan.",
+    "id" : "verse-cgs",
+    "issue_type" : "task",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Integrasi + perf\/hardening pass.\n\nINTEGRASI: Bubble lama (placeholder) sudah tergantikan in-place lewat #2-#5 — Bubble.tsx render .bubble-stage > .orb (glow\/body\/iridescence\/highlight\/rim) + <Eyes\/>, data-state dari useWebSocket. Drag-region (data-tauri-drag-region) tetap di stage & shell-surface, tidak dobel-mengganggu.\n\nDEAD CODE DIBERSIHKAN: hapus .shell-anchor (App.css, sisa placeholder 72px) dan src\/hooks\/useAudioLevel.ts (tak pernah diimpor — Bubble pakai useWebSocket() langsung). Class lama bubble-element\/pulse-slow\/pulse-thinking sudah tak ada.\n\nPERF: useAudioReactiveOrb sekarang TIDUR saat tak ada energi audio (idle\/thinking\/error) — loop rAF berhenti (rafRef=null) begitu target & current 0, dan di-kick bangun lagi saat audio masuk \/ state aktif. Sebelumnya loop 60fps jalan selamanya nulis 0.000. Penting untuk window always-on-top. Terverifikasi: --audio manual yang di-set di idle TIDAK ketimpa (loop terbukti tidur).\n\nSMOOTHNESS: (1) --orb-hue didaftarkan via @property <number> -> warna kini INTERPOLASI halus antar-state (transition --orb-hue 450ms), bukan snap. Terverifikasi morph 250->281->290 saat idle->thinking. (2) base .orb scale:1 + transition scale 160ms -> keluar dari listening\/speaking ease balik, tidak pop. (3) will-change:transform di iridescence (rotasi nonstop). (4) reduced-motion: audio scale & reactive glow dinetralkan (scale:1, glow statis) untuk user motion-sensitive.\n\nWINDOW: difinalkan 160->180px. Orb tetap 120px; sebelumnya margin 20px bikin glow (0 0 28px + drop 0 10px 30px, +34px saat audio) ke-clip garis keras di tepi window transparan. 180px (margin 30px) bikin halo idle muat penuh & tetap mengambang premium. POSISI window dibiarkan default (center layar) — penempatan (pojok\/follow-cursor) itu keputusan selera, belum diputuskan.\n\nVERIFIKASI: npm run build lulus (CSS 6.09kB gzip 2.06kB, 0 error TS). Preview smoke: 6 layer lengkap, hue morph interpolasi, rAF tidur di idle, 0 console error. CATATAN: kaca\/iridescence\/glow + containment 180px hanya tampil benar di 'npm run tauri dev' (desktop transparan), BUKAN preview browser putih.\n\nCARA TEST MANUAL: cd frontend && npm run tauri dev. Paksa state via console: document.querySelector('.orb').setAttribute('data-state','thinking') (cek warna morph halus tiap state). Audio: jalankan backend + bicara -> orb membesar\/glow ikut saat listening\/speaking. Cek baterai\/CPU di Activity Monitor saat idle (harusnya rendah karena rAF tidur). Cek drag window masih bisa.",
+    "parent_id" : "verse-000",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Integrasi, ganti Bubble lama, & perf pass",
+    "updated_at" : "2026-05-31T04:07:51Z"
+  },
+  {
+    "acceptance_criteria" : "Tiap state (idle\/listening\/thinking\/speaking\/error) punya ekspresi\/animasi berbeda yang jelas.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:07:44Z",
+    "created_at" : "2026-05-29T16:55:55Z",
+    "description" : "Why: Bubble harus ekspresif merefleksikan state asisten. What: Idle=napas pelan; Listening=waspada\/eyes terbuka; Thinking=eyes bergerak\/loading halus; Speaking=mulut\/wobble aktif; Error=shake+ekspresi sedih. Wire ke lastState dari useWebSocket.",
+    "id" : "verse-ghg",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Ekspresi per-state (CSS-driven via .orb[data-state]). Warna: idle hue250(biru), listening 200(cyan), thinking 290(ungu), speaking 330(magenta), error 25(merah) — semua gradient\/glow ikut via var(--orb-hue). Gerak: idle\/thinking=orb-breathe, thinking shimmer dipercepat 7s + mata look-around (keyframe eye-think), error=keyframe orb-shake + mata sad (height 9px, eyes turun). Mata: listening alert (lebih tinggi 25px), speaking happy (16px, bawah melengkung). Ekspresi mata ubah height\/width\/border-radius (bukan transform) supaya tak bentrok blink. prefers-reduced-motion meng-disable animasi. CATATAN: setia desain Spline = mata-only, TANPA mulut (epic sempat sebut mulut). Verifikasi: build lulus + computed style tiap state benar (hue+anim) via preview, 0 error. Test manual: tauri dev, paksa state via console document.querySelector('.orb').setAttribute('data-state','thinking').",
+    "parent_id" : "verse-000",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Per-state expressions & animations bubble",
+    "updated_at" : "2026-05-31T04:07:44Z"
+  },
+  {
+    "acceptance_criteria" : "Orb glossy translusen tampil di window 112px, tidak ada mata\/animasi reaktif dulu.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:07:43Z",
+    "created_at" : "2026-05-29T16:55:50Z",
+    "description" : "Why: Fondasi visual orb yang premium menggantikan lingkaran datar. What: Tampilan soap-bubble: gradient iridescent, rim-light, highlight kaca, refraksi\/blur lembut, transparansi. Statis dulu (belum reaktif\/belum mata). Sesuai pendekatan render hasil spike.",
+    "id" : "verse-chb",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Implementasi orb glossy berlayer (CSS murni) di Bubble.tsx + Bubble.css. Struktur: .bubble-stage > .orb(120px) > glow\/body(backdrop-filter glass)\/iridescence(conic-gradient pelangi rotasi 18s, mask radial, mix-blend screen)\/highlight(specular+glint)\/rim. Window di-resize 112->160 di tauri.conf.json. CSS vars --orb-hue\/--orb-tint\/--orb-glow disiapkan untuk per-state #4. Animasi hanya transform\/opacity + hormati prefers-reduced-motion. Test manual: cd frontend && npm run tauri dev -> orb translusen glossy + shimmer pelan + highlight kaca + mengambang, window 160px, masih bisa drag. npm run build sudah lulus.",
+    "parent_id" : "verse-000",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Glossy translucent orb base — soap-bubble look",
+    "updated_at" : "2026-05-31T04:07:43Z"
+  },
+  {
+    "acceptance_criteria" : "Mata muncul di orb, blink berkala dan gerak halus terlihat natural.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T04:07:43Z",
+    "created_at" : "2026-05-29T16:55:53Z",
+    "description" : "Why: Mata bikin bubble terasa hidup dan lucu (sesuai design). What: Dua mata putih rounded-rectangle di atas orb, blink natural berkala, gerak look-around halus, posisi\/skala adaptif terhadap orb.",
+    "id" : "verse-d8u",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Implementasi mata: komponen Eyes.tsx (2x .eye rounded-rect putih 14x22, radius 7px) + hook useBlink.ts (timer JS interval acak 3-6s, blink 130ms via scaleY 0.08). Idle drift halus via @keyframes eye-drift 7s (transform translate saja). Mata di dalam .orb (ikut transform untuk reaktivitas #5). Diverifikasi: build lulus, computed style benar (2 mata, blink wiring, drift), tidak ada console error. Test manual penuh: cd frontend && npm run tauri dev -> mata lucu di orb, blink natural berkala, drift halus. CATATAN: efek glass\/iridescent + mata putih hanya terlihat benar di window transparan Tauri (di browser biasa background putih bikin nyaris tak terlihat).",
+    "parent_id" : "verse-000",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Cute expressive eyes — mata putih rounded-rectangle",
+    "updated_at" : "2026-05-31T04:07:43Z"
+  },
+  {
+    "closed_at" : "2026-05-31T02:02:00Z",
+    "created_at" : "2026-05-29T11:21:29Z",
+    "description" : "Why: Butuh foundation React component structure agar Rayne bisa langsung design di atasnya tanpa setup. What: - App.tsx: root component dengan state-driven rendering - BubbleComponent: circle placeholder yang resize based on audioLevel prop, warna per state (idle=grey, listening=blue, thinking=yellow, speaking=green) - HistoryPanel: collapsed panel untuk show transcript (minimal) - Minimal CSS yang mudah di-override Out of scope: - Full UI design\/polish (Rayne's domain), settings panel, onboarding",
+    "id" : "verse-ofk",
+    "issue_type" : "task",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Basic React UI scaffolding + bubble component placeholder",
+    "updated_at" : "2026-05-31T02:02:00Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-31T01:28:09Z",
+    "created_at" : "2026-05-31T01:26:49Z",
+    "description" : "Reinforce system prompt to prevent system settings hallucination, and upgrade local intent router execution to return warm, localized conversational replies.",
+    "id" : "verse-26d",
+    "issue_type" : "bug",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix system settings LLM hallucination and conversationalize local router responses",
+    "updated_at" : "2026-05-31T01:28:09Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T18:36:35Z",
+    "created_at" : "2026-05-30T18:20:45Z",
+    "description" : "Add tools and intent matching for system screen brightness level query and setting.",
+    "id" : "verse-9qi",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Implement native screen brightness controls",
+    "updated_at" : "2026-05-30T18:36:35Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-30T18:20:24Z",
+    "created_at" : "2026-05-29T16:30:39Z",
+    "description" : "Build a robust logging and storage format under ~\/.verse\/debug_sessions\/<session_id>\/ to capture interaction audio WAVs, transcripts, VAD debug timelines, pipeline events, redacted LLM transactions, latency metrics, and error logs. Add CLI shell placeholders.",
+    "id" : "verse-cou",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Telah diimplementasikan logger sesi debug dan Replay Lab CLI. Unit test test_debug_logger.py berhasil memverifikasi pembuatan direktori sesi debug, log interaksi turn-by-turn (audio WAV input\/output, timeline VAD, log pipeline events, llm_transaction dengan sensor\/redacted otomatis untuk API key & credential sensitif, metrik latensi, dan error traces), serta fungsionalitas CLI list\/show\/replay. Seluruh 133 unit test backend berhasil dijalankan dan lulus.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Implement Debug Session Logging and Replay Lab",
+    "updated_at" : "2026-05-30T18:20:24Z"
+  },
+  {
+    "acceptance_criteria" : "Ada rekomendasi final tertulis beserta alasan perf\/baterai\/kompleksitas.",
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T18:19:18Z",
+    "created_at" : "2026-05-29T16:55:43Z",
+    "description" : "Why: Belum ada lib animasi\/3D terpasang; perlu keputusan fondasi sebelum bangun visual. What: Bandingkan 3 opsi untuk window 112px transparan + animasi konstan: (1) CSS+SVG no-dep ringan hemat baterai (rekomendasi awal), (2) Spline embed @splinetool\/react-spline paling mirip tapi berat ~MB, (3) react-three-fiber+shader iridescence akurat paling kompleks\/berat. Output: keputusan tertulis + spike kecil 1 opsi, pertimbangan perf\/baterai untuk always-on-top window.",
+    "id" : "verse-igs",
+    "issue_type" : "task",
+    "notes" : "Cara verifikasi: keputusan ini diimplementasi di #2 (verse-chb) sebagai bukti. Window di-resize 112->160 di awal #2. Tidak ada lib baru di package.json.",
+    "parent_id" : "verse-000",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Spike: pilih pendekatan rendering bubble (CSS\/SVG vs Spline vs R3F)",
+    "updated_at" : "2026-05-30T18:19:18Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T17:22:58Z",
+    "created_at" : "2026-05-30T17:21:36Z",
+    "description" : "Make set_dnd matching case-insensitive so it successfully detects lowercase shortcuts like 'toggle dnd'.",
+    "id" : "verse-33g",
+    "issue_type" : "bug",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix Focus Mode DND shortcut case-sensitivity",
+    "updated_at" : "2026-05-30T17:22:58Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T17:07:02Z",
+    "created_at" : "2026-05-30T17:03:32Z",
+    "description" : "Add tools and intent matching for system volume, muted settings, system light\/dark mode, and DND focus mode toggling.",
+    "id" : "verse-f1d",
+    "issue_type" : "feature",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Implement advanced system controls (volume, theme, DND)",
+    "updated_at" : "2026-05-30T17:07:02Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T16:52:38Z",
+    "created_at" : "2026-05-30T16:50:04Z",
+    "description" : "1. Stale config.toml disables new tools (calendar event creation, etc.). Fix config loader to merge new default tools. 2. Brave Browser open failure on macOS. 3. Log race condition in conversation mode resets log states before writing.",
+    "id" : "verse-wvr",
+    "issue_type" : "bug",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix calendar event, web search browser, and debug log race condition",
+    "updated_at" : "2026-05-30T16:52:38Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T15:53:20Z",
+    "created_at" : "2026-05-30T15:48:40Z",
+    "description" : "Perluas kapabilitas eksekusi Verse. #1 Shortcuts bridge: tool run_shortcut\/list_shortcuts via CLI shortcuts. #2 Native write-actions: Calendar create_event, Reminders due\/list\/complete, Messages send_message, Contacts lookup. Plus util osa.py (run_applescript + osa_quote escaping aman) terpusat. Backend tools + registry + config + tests.",
+    "id" : "verse-5ep",
+    "issue_type" : "feature",
+    "notes" : "DONE. Fondasi: osa.py (run_applescript + osa_quote escaping aman: backslash\/quote\/newline). #1 Shortcuts: shortcuts.py (run_shortcut via shortcuts run + -i\/-o tempfile, list_shortcuts). #2 Native: calendar.create_event, reminders.add_reminder(due\/list)+complete_reminder, messages.send_message (+ konfirmasi via deskripsi tool), contacts.lookup_contact\/find_contact. Registry+config diupdate (6 tool baru enabled, schema add_reminder diperluas). Tests: +20 (test_tools_osa\/shortcuts\/native), update 1 test lama. Suite 167 passed. Belum live-test (butuh izin TCC + kirim pesan nyata) & belum commit. Follow-up: system controls (volume\/DND\/dark mode), Mail, konfirmasi lisan sejati, offload osascript ke thread.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Automation: Apple Shortcuts bridge + native write-actions (Calendar\/Reminders\/Messages\/Contacts)",
+    "updated_at" : "2026-05-30T15:53:20Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T15:28:11Z",
+    "created_at" : "2026-05-30T15:20:53Z",
+    "description" : "Verse tak punya memori sama sekali (ConversationStore ada tapi tak pernah dipanggil; stop_and_respond tanpa history). Wire: (1) memori percakapan within+cross session via store, (2) memori jangka panjang: tabel memories + ekstraksi fakta async + injeksi ke system prompt, (3) MemoryConfig, (4) tool remember opsional. Backend: db.py, orchestrator.py, config.py, main.py, tools.",
+    "id" : "verse-xmd",
+    "issue_type" : "feature",
+    "notes" : "DONE. (1) Memori percakapan: Orchestrator simpan _conversation_history (rolling max_history*2), pakai di _respond, persist via store.save_message, seed dari load_recent_messages saat init (lintas sesi). build_orchestrator wire default_store(). (2) Memori jangka panjang: tabel memories (db.py: upsert_memory\/load_memories\/prune_memories, dedup normalized + salience), _extract_memories async (fire-and-forget, tak blok TTS) parse JSON fakta dari LLM, _compose_system_prompt suntik fakta ke system prompt. (3) MemoryConfig(enabled\/extract\/max_facts\/inject_facts) + parse. (4) Tool remember (builtin\/memory.py) pakai default_store, terdaftar + enabled. Tests: +13 (test_persistence_db memori, test_orchestrator_memory). Suite 146 passed. Belum live-test (butuh suara) & belum commit.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Verse memory: wire conversation history + long-term fact memory",
+    "updated_at" : "2026-05-30T15:28:11Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T15:12:10Z",
+    "created_at" : "2026-05-30T15:07:13Z",
+    "description" : "State listening punya cincin gelap + warna 1-hue (ijo). User mau halo warna-warni iridescent glowing di sekeliling orb. Tambah layer .orb__aura (conic rainbow blurred, ring mask), aktif hanya saat listening, buang drop-shadow gelap + pulse dari glow. Frontend: Bubble.tsx + Bubble.css.",
+    "id" : "verse-l1t",
+    "issue_type" : "task",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Listening orb: ganti cincin gelap jadi halo iridescent glowing",
+    "updated_at" : "2026-05-30T15:12:10Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T14:58:46Z",
+    "created_at" : "2026-05-30T14:53:12Z",
+    "description" : "Orb terasa flat dan warna antar-state (listening\/thinking\/speaking) terlalu mirip. Tambah tekstur liquid-iridescent (oil-film 2 layer + caustics) dan diferensiasi state via hue dijauhkan + chroma bervariasi + signature gerak khas per state. Frontend only: Bubble.css + Bubble.tsx.",
+    "id" : "verse-mno",
+    "issue_type" : "feature",
+    "notes" : "Implemented: Bubble.css + Bubble.tsx. (1) Per-state hue+chroma via @property --orb-chroma (idle 255\/0.09, listening 195\/0.17, thinking 300\/0.18, speaking 350\/0.19, error 25\/0.20). (2) Motion khas: idle breathe 7.5s, listening halo-pulse 1.7s, thinking shimmer 5s + specular orbit, speaking border-radius wobble. (3) Liquid: iridescence + layer ke-2 counter-rotating + caustics drifting + fresnel rim. (4) reduced-motion handled. Verified build pass + 5-state screenshot via preview MCP, semua jelas beda.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Bubble orb: liquid-iridescent texture + state colors yang tak tertukar",
+    "updated_at" : "2026-05-30T14:58:46Z"
+  },
+  {
+    "assignee" : "gemini",
+    "closed_at" : "2026-05-30T14:45:38Z",
+    "created_at" : "2026-05-29T14:35:54Z",
+    "description" : "Why: Expand Verse's capabilities to manage personal workflow.\nWhat:\n- Add weather tool using open API.\n- Add notes tool (allowing reading\/writing local markdown files).\n- Add macOS calendar reading tool.\n- Add macOS reminders reading\/writing tool.",
+    "id" : "verse-c5d",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "(1) Letak elemen baru di UI: Tidak ada elemen UI visual baru (backend-only tools yang dipanggil lewat perintah suara).\n(2) Panduan manual testing:\n1. Pastikan backend berjalan (poetry run python -m verse.main).\n2. Tekan dan tahan tombol pintas (Alt+Space) lalu ucapkan perintah berikut:\n   - \"Bagaimana cuaca di Jakarta hari ini?\" -> Asisten harus membalas dengan info cuaca terkini dari Open-Meteo.\n   - \"Tulis catatan baru dengan judul Belanja dan isi Beli susu dan telur.\" -> Catatan akan tersimpan di berkas local markdown ~\/Verse\/notes\/Belanja.md.\n   - \"Baca catatan Belanja\" -> Asisten membacakan isi catatan Belanja.\n   - \"Daftar catatan saya\" -> Asisten menyebutkan daftar catatan yang ada.\n   - \"Ada acara apa di kalender hari ini?\" -> Asisten membacakan agenda hari ini dari macOS Calendar.\n   - \"Tampilkan pengingat saya\" -> Asisten membacakan pengingat yang belum selesai dari macOS Reminders.\n   - \"Tambahkan pengingat beli roti tawar\" -> Asisten menambahkan pengingat ke aplikasi Reminders bawaan macOS.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "More tools: weather, notes, calendar (read), reminders",
+    "updated_at" : "2026-05-30T14:45:38Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T14:45:35Z",
+    "created_at" : "2026-05-29T18:58:06Z",
+    "description" : "Add optional voice.engine=gemini_live config that streams 16kHz PCM mic audio directly to Gemini Live API and plays 24kHz PCM response chunks in real time. Leaves classic pipeline untouched. Fallback to classic on init failure.",
+    "id" : "verse-bdc",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Selesai implementasi Gemini Live engine sebagai opsi opt-in (voice.engine = gemini_live), pipeline classic TIDAK diubah.\n\nFile baru:\n- verse\/engines\/gemini_live.py — GeminiLiveEngine, duck-type kompatibel dengan Orchestrator (callback & method sama, jadi wiring main.py identik). Persistent session + reconnect exponential backoff. Send\/receive loop konkuren. Mic 16kHz float32->int16 PCM via sounddevice callback -> asyncio.Queue (thread-safe via call_soon_threadsafe). Tool calling lewat ToolRegistry yang ada. Transkrip input\/output diteruskan sebagai delta. Barge-in via player.clear() + activity_start. _schema_to_gemini() konversi JSON Schema -> google.genai Schema.\n- verse\/audio\/streaming_player.py — StreamingPlayer, playback 24kHz int16 real-time (numpy buffer + threading.Lock + sounddevice OutputStream), dukung barge-in.\n- verse\/engines\/__init__.py\n\nFile diubah:\n- verse\/config.py — GeminiLiveConfig + VoiceConfig + AppConfig.voice\n- verse\/main.py — _build_engine (pilih engine), _wire_callbacks, _startup dgn FALLBACK ke classic kalau Gemini start() gagal (mis. API key kosong) + emit error_message recoverable. Route pesan WS \"interrupt\" -> engine.request_barge_in(). on_transcript pakai partial=False default biar backward-compat 1-arg Orchestrator.\n- verse\/ws\/server.py — tambah property setter on_client_message (buat re-wire saat fallback).\n- pyproject.toml — google-genai>=0.8.0 (terpasang 2.7.0).\n\nMode: push-to-talk (server VAD off, activity_start\/end manual) ATAU conversation_mode (server VAD on, auto re-listen saat turn_complete).\n\nAPI key: keyring set verse gemini_api_key <key>. Tanpa key -> RuntimeError -> fallback ke classic.\n\nCARA TEST:\n1. cd backend && poetry install\n2. poetry run python -m pytest -q  -> 107 passed (sudah dicek).\n3. Smoke import & builder sudah dicek: _convert_tools (12 decls), _make_live_config (AUDIO+TEXT, input\/output transcription, realtime cfg) OK.\n4. Manual end-to-end: keyring set verse gemini_api_key <key>; tambah [voice] engine=\"gemini_live\" di ~\/.verse\/config.toml; poetry run python -m verse.main -> tahan hotkey, bicara, lepas -> orb LISTENING->THINKING->SPEAKING->IDLE, audio realtime, transcript & assistant_text muncul. Barge-in: tahan hotkey saat speaking. Tool: \"play some music\". Fallback: pakai key invalid -> harus jatuh ke classic + error recoverable di frontend.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Gemini Live voice engine",
+    "updated_at" : "2026-05-30T14:45:35Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-30T14:45:31Z",
+    "created_at" : "2026-05-29T16:30:22Z",
+    "description" : "Build a lightweight deterministic LocalIntentRouter to intercept simple commands (music playback, VS Code, Spotify, get time, stop, cancel, nevermind) locally using regex\/pattern matching. Router should be optional, configurable, and fallback to LLM when confidence threshold is not met.",
+    "id" : "verse-n1g",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan backend-only: ditambahkan LocalIntentRouter sebelum LLM untuk intent deterministik berkonfiden tinggi seperti get_time, open_app untuk Spotify\/VS Code, play\/pause music eksplisit, dan cancel lokal; router bisa dinonaktifkan lewat [intent]. Lokasi UI: tidak ada elemen UI baru atau tampilan baru; dampaknya terlihat pada bubble utama\/Conversation Mode yang sudah ada ketika perintah lokal diproses lebih cepat tanpa LLM. Panduan uji manual: 1. Jalankan poetry run python -m verse.main dari backend dan npm run tauri dev dari frontend. 2. Tekan Alt+Space atau mode conversation, ucapkan 'jam berapa sekarang' lalu pastikan jawaban datang tanpa jeda LLM panjang. 3. Ucapkan 'buka Spotify' atau 'play music jazz' dan pastikan tool lokal berjalan. 4. Ucapkan pertanyaan bebas non-intent dan pastikan tetap masuk STT -> LLM -> TTS. Validasi otomatis: poetry run pytest -q menghasilkan 129 passed; npm run build berhasil. Catatan git: remote tidak terkonfigurasi (git remote -v kosong), sehingga push\/merge remote tidak dapat dijalankan dari workspace ini tanpa mencampur perubahan lain yang sudah ada.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Implement Local Intent Router before LLM",
+    "updated_at" : "2026-05-30T14:45:31Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T14:45:28Z",
+    "created_at" : "2026-05-30T04:45:18Z",
+    "description" : "Toggle conversation mode dipanggil dari thread pynput -> asyncio.get_running_loop() gagal -> loop None -> VAD task tak dibuat -> giliran tak terdeteksi. Fix: jadwalkan toggle ke event loop via run_coroutine_threadsafe. Plus pisahkan PTT one-shot vs toggle kontinu, dan tuning end_silence_ms.",
+    "id" : "verse-q6h",
+    "issue_type" : "bug",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "LANJUTAN — fix threading saja tak cukup, conversation mode masih tak merespons.\n\nAkar masalah KEDUA (terkonfirmasi): mic default MacBook Pro Microphone @ 48000 Hz, recorder minta 16000 Hz -> PortAudio resample -> blok callback sering BUKAN persis 512 sampel. _run_vad_loop (orchestrator.py:381-383) drop semua frame !=512 via 'continue' -> VADEndpointingStateMachine.process_frame tak pernah dipanggil -> tak pernah ENDED\/TIMEOUT -> tak ada auto-respond. Orb tetap membesar krn _handle_audio_level (RMS) jalur terpisah, tak peduli ukuran blok. Unit test lolos krn selalu disuapi frame 512 sempurna.\n\nPerubahan rencana:\n- orchestrator.py _run_vad_loop: ganti guard !=512 dgn buffer rolling -> potong stream jadi frame 512 persis (np.concatenate + slice). PTT & fallback level tak tersentuh.\n- Observability: print 'Listening (conversation)...' saat start_auto_listening, dan 'Still listening...' saat re-arm timeout (terminal sebelumnya gada apa apa).\n- _auto_timeout: re-arm start_auto_listening() kalau conversation_mode_active (kontinu sampai toggle off), bukan mati diam-diam saat jeda >5s.\n- Tambah test: suapi _run_vad_loop blok non-512 (480 & 1024) -> tetap ENDED.\nAKAR MASALAH KETIGA (DECISIVE, terbukti empiris) — fix reframe 512 di atas perlu, tapi tak cukup.\n\nModel ~\/.verse\/models\/silero_vad.onnx yang terunduh MENGHARAP window 256 sampel (16ms @16kHz), BUKAN 512. App hardcode 512 di mana-mana -> SileroVADManager.predict() keluarkan prob ~0 untuk SEMUA input -> endpointing mustahil -> selalu TIMEOUT -> spam 'Still listening...'.\n\nBukti (speech 16kHz bersih via `say --data-format=LEI16@16000`, dilewatkan langsung ke ONNX):\n- window 256: max_prob 0.996, mean 0.59, 66% frame >0.5  (SEHAT)\n- window 512 (dipakai app): max 0.068, 0% >0.5  (SAMPAH)\nDiskriminasi sehat di 256 -> thresholds 0.55\/0.35 TETAP PAS, yang salah cuma ukuran window. PTT lolos krn tak lewat VAD (kirim seluruh rekaman ke Whisper).\n\nFIX TERIMPLEMENTASI + TERVERIFIKASI:\n- verse\/audio\/vad.py: konstanta VAD_WINDOW_SAMPLES=256, VAD_FRAME_MS=16. predict() guard !=256. _frame_ms=16 (dari 32) -> semua durasi ms (speech_start\/end_silence\/min\/max_utterance\/pre_roll) otomatis benar krn berbasis ms dibagi _frame_ms.\n- verse\/orchestrator.py _run_vad_loop: slice VAD_WINDOW_SAMPLES, duration_ms *= VAD_FRAME_MS. Recorder blocksize=512 dibiarkan; reframe rolling-buffer tangani ukuran blok apa pun (512 -> 2 frame 256).\n- Tests: test_orchestrator_vad (assert 256 + 2 test baru: guard window predict 256-ok\/512-tolak, timing SPEECH_ACTIVE setelah speech_start_ms\/16 frame). test_vad.py & test_vad_state.py disesuaikan ke 16ms\/256. Suite: 113 passed.\n- Diagnostic reproducible: max_prob 0.996 di window 256 (vs 0.07 di 512).\n\nBelum diuji LIVE oleh user (mic 48kHz). Status tetap IN_PROGRESS + human-flagged sampai user konfirmasi 'Heard you, listening...' muncul di terminal.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix conversation mode (shift+alt+space) tak merespons + smooth",
+    "updated_at" : "2026-05-30T14:45:28Z"
+  },
+  {
+    "assignee" : "other",
+    "closed_at" : "2026-05-30T14:45:27Z",
+    "created_at" : "2026-05-29T16:30:05Z",
+    "description" : "Allow users to cut off Verse while speaking by pressing hotkey or when VAD detects speech. Stop TTS playback immediately, clear the audio queue, transition to listening state, and broadcast the interruption event.",
+    "id" : "verse-b2d",
+    "issue_type" : "feature",
+    "labels" : [
+      "human"
+    ],
+    "notes" : "Perubahan backend-only: classic pipeline kini mendukung barge-in saat TTS dengan stop_event interruptible playback, playback dijalankan di thread agar WebSocket\/hotkey tetap responsif, event tts.interrupted dipancarkan, lalu state berpindah kembali ke listening; pada conversation mode, barge-in re-arm lewat start_auto_listening supaya follow-up tetap hidup. Lokasi UI: tidak ada elemen UI baru atau tampilan baru; perilaku terlihat pada bubble utama yang sudah ada saat asisten sedang speaking lalu pengguna menekan hotkey\/interrupt sehingga bubble kembali listening. Panduan uji manual: 1. Jalankan poetry run python -m verse.main dari backend dan npm run tauri dev dari frontend. 2. Mulai satu pertanyaan panjang agar Verse berbicara cukup lama. 3. Saat TTS sedang speaking, tekan Alt+Space atau kirim interrupt dari frontend, pastikan audio berhenti segera dan console mencetak Interrupting. 4. Langsung bicara lagi dan pastikan state masuk listening lalu pertanyaan baru diproses. 5. Ulangi dalam conversation mode tanpa mengaktifkan Gemini. Validasi otomatis: poetry run pytest -q menghasilkan 129 passed; npm run build berhasil. Catatan git: remote tidak terkonfigurasi (git remote -v kosong), sehingga push\/merge remote tidak dapat dijalankan dari workspace ini tanpa mencampur perubahan lain yang sudah ada.",
+    "priority" : 2,
+    "status" : "closed",
+    "title" : "Phase 3.5: Implement Barge-in and Interruption during TTS",
+    "updated_at" : "2026-05-30T14:45:27Z"
+  },
+  {
+    "assignee" : "Rayne-lope",
+    "closed_at" : "2026-05-30T14:19:10Z",
+    "created_at" : "2026-05-30T14:14:57Z",
+    "description" : "Classic conversation mode can loop on VAD timeout with repeated Still listening logs and never process user speech when Silero stays below threshold on real microphone input. Add conservative RMS fallback inside the VAD loop while preserving Silero as primary.",
+    "id" : "verse-4dt",
+    "issue_type" : "bug",
+    "notes" : "Implemented hybrid RMS fallback for classic conversation VAD. Silero remains primary; when Silero stays WAITING but microphone RMS is sustained above threshold, fallback arms, endpoints on RMS silence, emits rms_speech_started\/rms_speech_ended\/rms_speech_discarded events, and processes valid utterances. Added timeout diagnostics with max_probability\/max_rms_level\/rms_fallback_armed. Added VADConfig fields rms_fallback_enabled\/rms_start_level\/rms_end_level and frontend type support for deactivate_conversation. Validation: targeted VAD\/config tests 34 passed, full backend pytest 117 passed, npm run build passed, git diff --check clean. Runtime restart\/manual spoken test not performed because existing Verse backend\/Tauri processes are currently running on port 8765.",
+    "priority" : 1,
+    "status" : "closed",
+    "title" : "Fix classic conversation mode stuck listening",
+    "updated_at" : "2026-05-30T14:19:10Z"
+  },
+  {
     "assignee" : "gemini",
     "closed_at" : "2026-05-30T04:27:37Z",
     "created_at" : "2026-05-29T16:30:12Z",

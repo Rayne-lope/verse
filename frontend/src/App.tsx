@@ -23,9 +23,11 @@ declare global {
 }
 
 function App() {
-  const { connectionStatus, lastState, send, onboardingNeeded } = useWebSocket();
+  const { connectionStatus, lastState, micStatus, send, onboardingNeeded } = useWebSocket();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const micActive = Boolean(micStatus?.active || lastState === "listening");
+  const micMode = lastState === "listening" ? "recording" : micStatus?.mode ?? "off";
 
   const shrinkIfIdle = useCallback((exceptSettings: boolean, exceptOnboarding: boolean) => {
     setTimeout(() => {
@@ -96,6 +98,13 @@ function App() {
         data-status={connectionStatus}
         data-state={lastState ?? "none"}
         title={`WebSocket: ${connectionStatus}${lastState ? ` · ${lastState}` : ""}`}
+      />
+      <div
+        className="privacy-indicator"
+        data-active={micActive ? "true" : "false"}
+        data-mode={micMode}
+        title={micActive ? `Microphone active: ${micMode}` : "Microphone inactive"}
+        aria-hidden="true"
       />
       <SettingsPanel open={settingsOpen} onClose={handleCloseSettings} />
       <OnboardingFlow open={onboardingOpen} onClose={handleCloseOnboarding} />

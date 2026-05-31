@@ -13,6 +13,7 @@ MSG_TRANSCRIPT = "transcript"
 MSG_ASSISTANT_TEXT = "assistant_text"
 MSG_TOOL_EXECUTED = "tool_executed"
 MSG_ERROR = "error"
+MSG_MIC_STATUS = "mic_status"
 
 
 def state_change_message(event: StateChangedEvent) -> dict[str, Any]:
@@ -37,6 +38,10 @@ def tool_executed_message(name: str, result: Any) -> dict[str, Any]:
 
 def error_message(message: str, *, recoverable: bool = True) -> dict[str, Any]:
     return {"type": MSG_ERROR, "message": message, "recoverable": recoverable}
+
+
+def mic_status_message(active: bool, mode: str = "off") -> dict[str, Any]:
+    return {"type": MSG_MIC_STATUS, "active": bool(active), "mode": mode}
 
 
 MSG_PIPELINE_EVENT = "pipeline_event"
@@ -76,6 +81,14 @@ def config_data_message(config: "AppConfig", api_keys: dict[str, bool]) -> dict[
             },
             "hotkey": {
                 "trigger": config.hotkey.trigger,
+            },
+            "always_on": {
+                "enabled": config.always_on.enabled,
+                "keyword": config.always_on.keyword,
+                "keyword_path": config.always_on.keyword_path,
+                "model_path": config.always_on.model_path,
+                "sensitivity": config.always_on.sensitivity,
+                "device": config.always_on.device,
             },
             "memory": {
                 "enabled": config.memory.enabled,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 
 from verse.config import AppConfig, load_config, update_config_key
 from verse.hotkey import HotkeyListener
@@ -10,6 +11,7 @@ from verse.ws.protocol import (
     assistant_text_message,
     audio_level_message,
     error_message,
+    mic_status_message,
     tool_executed_message,
     transcript_message,
     pipeline_event_message,
@@ -21,10 +23,18 @@ logger = logging.getLogger(__name__)
 
 def _get_api_keys_status() -> dict[str, bool]:
     from verse.persistence.keychain import get_api_key
-    return {k: get_api_key(k) is not None for k in ("groq", "deepseek", "brave", "spotify")}
+    return {
+        k: get_api_key(k) is not None
+        for k in ("groq", "deepseek", "brave", "spotify", "picovoice")
+    }
 
 
-def build_client_message_handler(engine, config_holder: list[AppConfig]):
+def build_client_message_handler(
+    engine,
+    config_holder: list[AppConfig],
+    *,
+    on_config_changed: Callable[[AppConfig], None] | None = None,
+):
     async def handle_client_message(
         _server: WebSocketServer,
         _client,
@@ -52,6 +62,8 @@ def build_client_message_handler(engine, config_holder: list[AppConfig]):
                 config_holder[0] = new_cfg
                 _server.enqueue(config_updated_message(success=True))
                 _server.enqueue(config_data_message(new_cfg, _get_api_keys_status()))
+                if on_config_changed is not None:
+                    on_config_changed(new_cfg)
             except Exception as exc:
                 logger.exception("update_config failed for %r.%r", section, key)
                 _server.enqueue(config_updated_message(success=False, error=str(exc)))
@@ -66,6 +78,8 @@ def build_client_message_handler(engine, config_holder: list[AppConfig]):
                 set_api_key(key_name, value)
                 _server.enqueue(api_key_set_message(key_name, success=True))
                 _server.enqueue(config_data_message(config_holder[0], _get_api_keys_status()))
+                if on_config_changed is not None:
+                    on_config_changed(config_holder[0])
             except Exception as exc:
                 logger.exception("set_api_key failed for %r", key_name)
                 _server.enqueue(api_key_set_message(key_name, success=False))
@@ -133,6 +147,87 @@ def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
     )
 
 
+class _AlwaysOnRuntime:
+    def __init__(
+        self,
+        engine,
+        config_holder: list[AppConfig],
+        ws_server: WebSocketServer,
+    ) -> None:
+        self._engine = engine
+        self._config_holder = config_holder
+        self._ws_server = ws_server
+        self._listener = None
+        self._unsubscribe: Callable[[], None] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def start(self) -> None:
+        if not hasattr(self._engine, "start_auto_listening"):
+            return
+        from verse.wake_word import PorcupineWakeWordListener
+
+        self._loop = asyncio.get_running_loop()
+
+        def on_wake(keyword_index: int) -> None:
+            from verse.state import State
+
+            self._ws_server.enqueue(
+                pipeline_event_message(
+                    "wake_word", "detected", keyword_index=keyword_index
+                )
+            )
+            if self._engine.state_machine.state is State.IDLE:
+                self._engine.start_auto_listening()
+
+        def on_status(active: bool, mode: str) -> None:
+            self._ws_server.enqueue(mic_status_message(active, mode))
+
+        def on_error(message: str) -> None:
+            self._ws_server.enqueue(error_message(message, recoverable=True))
+            self._ws_server.enqueue(
+                pipeline_event_message("wake_word", "error", message=message)
+            )
+
+        self._listener = PorcupineWakeWordListener(
+            self._config_holder[0].always_on,
+            on_wake=on_wake,
+            on_status=on_status,
+            on_error=on_error,
+        )
+        self._unsubscribe = self._engine.state_machine.subscribe(
+            lambda _event: self.schedule_sync()
+        )
+        self.sync()
+
+    def schedule_sync(self) -> None:
+        loop = self._loop
+        if loop is None:
+            self.sync()
+        else:
+            loop.call_soon_threadsafe(self.sync)
+
+    def sync(self, _config: AppConfig | None = None) -> None:
+        if self._listener is None:
+            return
+        from verse.state import State
+
+        config = self._config_holder[0].always_on
+        self._listener.update_config(config)
+        if config.enabled and self._engine.state_machine.state is State.IDLE:
+            self._listener.start()
+        else:
+            self._listener.stop()
+
+    def close(self) -> None:
+        if self._unsubscribe is not None:
+            self._unsubscribe()
+            self._unsubscribe = None
+        if self._listener is not None:
+            self._listener.close()
+            self._listener = None
+        self._ws_server.enqueue(mic_status_message(False, "off"))
+
+
 async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger = None):
     """Start WS server, select engine, wire callbacks, with Gemini fallback."""
     await ws_server.start()
@@ -143,7 +238,7 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
     engine, is_gemini = _build_engine(config, debug_logger=debug_logger)
     ws_server.attach_state_machine(engine.state_machine)
     _wire_callbacks(engine, ws_server)
-    ws_server.on_client_message = build_client_message_handler(engine, config_holder)
+    always_on_runtime = None
 
     if is_gemini:
         try:
@@ -161,9 +256,18 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
             engine, _ = _build_engine(config, force_classic=True, debug_logger=debug_logger)
             ws_server.attach_state_machine(engine.state_machine)
             _wire_callbacks(engine, ws_server)
-            ws_server.on_client_message = build_client_message_handler(engine, config_holder)
 
-    return engine
+    if config_holder[0].voice.engine != "gemini_live":
+        always_on_runtime = _AlwaysOnRuntime(engine, config_holder, ws_server)
+        always_on_runtime.start()
+
+    ws_server.on_client_message = build_client_message_handler(
+        engine,
+        config_holder,
+        on_config_changed=always_on_runtime.sync if always_on_runtime else None,
+    )
+
+    return engine, always_on_runtime
 
 
 def main() -> None:
@@ -182,7 +286,9 @@ def main() -> None:
     ws_server = WebSocketServer()
 
     try:
-        engine = loop.run_until_complete(_startup(config, ws_server, debug_logger=debug_logger))
+        engine, always_on_runtime = loop.run_until_complete(
+            _startup(config, ws_server, debug_logger=debug_logger)
+        )
     except OSError as exc:
         print(f"Error: WebSocket server could not start on localhost:8765: {exc}")
         loop.close()
@@ -249,6 +355,8 @@ def main() -> None:
         listener.stop()
 
         async def _shutdown() -> None:
+            if always_on_runtime is not None:
+                always_on_runtime.close()
             if hasattr(engine, "close"):
                 try:
                     await engine.close()

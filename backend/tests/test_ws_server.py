@@ -69,6 +69,11 @@ def test_message_builders_match_protocol():
         "message": "boom",
         "recoverable": False,
     }
+    assert protocol.mic_status_message(True, "ambient") == {
+        "type": "mic_status",
+        "active": True,
+        "mode": "ambient",
+    }
 
 
 def test_broadcast_sends_to_all_clients_and_drops_dead_ones():

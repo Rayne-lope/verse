@@ -520,9 +520,14 @@ verse/
 
 ### v2.0 — Always-On Verse
 
-- **Wake word**: "Hey Verse" via Picovoice Porcupine (custom model)
-- **Ambient mode**: low-power idle, wake on trigger
-- **Privacy indicator**: visual cue when mic active
+- [x] **Wake word**: "Hey Verse" via Picovoice Porcupine custom `.ppn`
+- [x] **Ambient mode**: optional low-power idle listener, default off
+- [x] **Privacy indicator**: visible mic cue for ambient/listening states
+
+Implementation notes:
+- Config lives under `[always_on]` in `~/.verse/config.toml`.
+- Picovoice AccessKey is stored in macOS Keychain as `picovoice` or read from `PICOVOICE_ACCESS_KEY`.
+- Ambient listener only runs while Verse is idle, pauses during active turns, and restarts after the turn returns to idle.
 
 ### v2.1 — Browser Agent
 

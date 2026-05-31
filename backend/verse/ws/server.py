@@ -36,6 +36,7 @@ class WebSocketServer:
         self._server: Server | None = None
         self._consumer: asyncio.Task | None = None
         self._config: Any | None = None
+        self._mic_status: dict[str, Any] | None = None
 
     @property
     def client_count(self) -> int:
@@ -86,6 +87,8 @@ class WebSocketServer:
 
     def enqueue(self, message: dict[str, Any]) -> None:
         """Thread-safe entry point for producers running off the event loop."""
+        if message.get("type") == "mic_status":
+            self._mic_status = dict(message)
         loop = self._loop
         if loop is None:
             self._queue.put_nowait(message)
@@ -109,8 +112,13 @@ class WebSocketServer:
             if self._config is not None:
                 from verse.persistence.keychain import get_api_key
                 from verse.ws.protocol import config_data_message
-                api_keys = {k: get_api_key(k) is not None for k in ("groq", "deepseek", "brave", "spotify")}
+                api_keys = {
+                    k: get_api_key(k) is not None
+                    for k in ("groq", "deepseek", "brave", "spotify", "picovoice")
+                }
                 await client.send(json.dumps(config_data_message(self._config, api_keys)))
+            if self._mic_status is not None:
+                await client.send(json.dumps(self._mic_status))
             async for raw in client:
                 if self._on_client_message is None:
                     continue

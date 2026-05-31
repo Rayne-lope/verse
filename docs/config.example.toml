@@ -24,3 +24,12 @@ speed = 1.0
 [tools]
 enabled = ["play_music", "pause_music", "open_app", "web_search", "open_url"]
 spotify_client_id = ""
+
+[always_on]
+enabled = false
+# Create a custom "Hey Verse" .ppn in Picovoice Console and store the
+# AccessKey in macOS Keychain as "picovoice" or PICOVOICE_ACCESS_KEY.
+keyword_path = "~/.verse/wake/hey_verse.ppn"
+keyword = ""
+sensitivity = 0.65
+device = "cpu"

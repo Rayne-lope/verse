@@ -60,3 +60,34 @@ body,
 .ws-status[data-status="closed"] {
   background: oklch(64% 0.2 25);
 }
+
+.privacy-indicator {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 2;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  opacity: 0;
+  scale: 0.82;
+  background: oklch(72% 0.18 30);
+  box-shadow: 0 0 0 0 oklch(72% 0.18 30 / 0);
+  transition: opacity 180ms ease, scale 180ms ease, background 180ms ease;
+}
+
+.privacy-indicator[data-active="true"] {
+  opacity: 1;
+  scale: 1;
+  box-shadow: 0 0 12px oklch(72% 0.18 30 / 0.55);
+}
+
+.privacy-indicator[data-mode="ambient"] {
+  background: oklch(72% 0.16 195);
+  box-shadow: 0 0 12px oklch(72% 0.16 195 / 0.45);
+}
+
+.privacy-indicator[data-mode="recording"] {
+  background: oklch(72% 0.18 30);
+  box-shadow: 0 0 12px oklch(72% 0.18 30 / 0.55);
+}

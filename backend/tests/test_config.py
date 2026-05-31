@@ -102,6 +102,31 @@ local_router_confidence_threshold = 0.9
     assert config.intent.local_router_confidence_threshold == 0.9
 
 
+def test_load_config_parses_always_on_values(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[always_on]
+enabled = true
+keyword = "picovoice"
+keyword_path = ""
+model_path = "/tmp/model.pv"
+sensitivity = 0.8
+device = "cpu:2"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.always_on.enabled is True
+    assert config.always_on.keyword == "picovoice"
+    assert config.always_on.keyword_path == ""
+    assert config.always_on.model_path == "/tmp/model.pv"
+    assert config.always_on.sensitivity == 0.8
+    assert config.always_on.device == "cpu:2"
+
+
 def test_load_config_auto_migrates_default_path(tmp_path, monkeypatch):
     default_config_path = tmp_path / "config.toml"
     

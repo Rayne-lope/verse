@@ -4,8 +4,8 @@ import type { ApiKeyStatus } from "../types/ws";
 import { useWebSocket } from "../hooks/useWebSocket";
 import "./SettingsPanel.css";
 
-type Section = "API Keys" | "Voice" | "STT" | "LLM" | "Hotkeys" | "Memory";
-const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Memory"];
+type Section = "API Keys" | "Voice" | "STT" | "LLM" | "Hotkeys" | "Always-On" | "Memory";
+const SECTIONS: Section[] = ["API Keys", "Voice", "STT", "LLM", "Hotkeys", "Always-On", "Memory"];
 
 interface Props {
   open: boolean;
@@ -52,6 +52,7 @@ export function SettingsPanel({ open, onClose }: Props) {
           {activeSection === "STT" && <STTSection />}
           {activeSection === "LLM" && <LLMSection />}
           {activeSection === "Hotkeys" && <HotkeysSection />}
+          {activeSection === "Always-On" && <AlwaysOnSection />}
           {activeSection === "Memory" && <MemorySection />}
         </div>
       </div>
@@ -68,6 +69,7 @@ function ApiKeysSection() {
     { name: "deepseek", label: "DeepSeek (LLM)", placeholder: "sk-..." },
     { name: "brave", label: "Brave Search", placeholder: "BSA..." },
     { name: "spotify", label: "Spotify Client ID", placeholder: "client id..." },
+    { name: "picovoice", label: "Picovoice (wake word)", placeholder: "AccessKey..." },
   ];
 
   return (
@@ -322,6 +324,87 @@ function HotkeysSection() {
       <p className="settings-hint" style={{ marginTop: 12 }}>
         To change hotkeys, edit <code style={{ fontFamily: "ui-monospace, monospace", fontSize: 11 }}>~/.verse/config.toml</code> and restart.
       </p>
+    </>
+  );
+}
+
+function AlwaysOnSection() {
+  const { config, apiKeys, send } = useWebSocket();
+  if (!config) return <p className="settings-section-hint">Connecting to backend…</p>;
+
+  const alwaysOn = config.always_on;
+
+  return (
+    <>
+      <p className="settings-section-hint">
+        Always-On keeps a tiny wake-word listener active while Verse is idle. Restart Verse after changing these values.
+      </p>
+
+      <div className="settings-row">
+        <span className="settings-label">Enabled</span>
+        <label className="settings-toggle">
+          <input
+            type="checkbox"
+            checked={alwaysOn.enabled}
+            onChange={(e) => send({ type: "update_config", section: "always_on", key: "enabled", value: e.target.checked })}
+          />
+          <span className="settings-toggle-track" />
+          <span className="settings-toggle-thumb" />
+        </label>
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">AccessKey</span>
+        <span className="settings-key-status" data-set={apiKeys?.picovoice ? "true" : "false"}>
+          {apiKeys?.picovoice ? "set" : "not set"}
+        </span>
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Wake file</span>
+        <input
+          className="settings-input"
+          type="text"
+          defaultValue={alwaysOn.keyword_path}
+          placeholder="~/.verse/wake/hey_verse.ppn"
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== alwaysOn.keyword_path) send({ type: "update_config", section: "always_on", key: "keyword_path", value: v });
+          }}
+        />
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Fallback keyword</span>
+        <input
+          className="settings-input"
+          type="text"
+          defaultValue={alwaysOn.keyword}
+          placeholder="picovoice"
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== alwaysOn.keyword) send({ type: "update_config", section: "always_on", key: "keyword", value: v });
+          }}
+        />
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Sensitivity</span>
+        <input
+          className="settings-input"
+          type="number"
+          min={0}
+          max={1}
+          step={0.05}
+          defaultValue={alwaysOn.sensitivity}
+          onBlur={(e) => {
+            const v = parseFloat(e.target.value);
+            if (!isNaN(v) && v !== alwaysOn.sensitivity) {
+              send({ type: "update_config", section: "always_on", key: "sensitivity", value: v });
+            }
+          }}
+        />
+      </div>
     </>
   );
 }

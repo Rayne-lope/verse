@@ -15,6 +15,12 @@ export interface AudioLevelMessage {
   level: number;
 }
 
+export interface MicStatusMessage {
+  type: "mic_status";
+  active: boolean;
+  mode: "ambient" | "recording" | "off" | string;
+}
+
 export interface TranscriptMessage {
   type: "transcript";
   text: string;
@@ -56,6 +62,14 @@ export interface VerseConfig {
   stt: { language: string };
   llm: { provider: string; model: string; temperature: number; max_history: number };
   hotkey: { trigger: string };
+  always_on: {
+    enabled: boolean;
+    keyword: string;
+    keyword_path: string;
+    model_path: string;
+    sensitivity: number;
+    device: string;
+  };
   memory: { enabled: boolean; max_facts: number };
 }
 
@@ -64,6 +78,7 @@ export interface ApiKeyStatus {
   deepseek: boolean;
   brave: boolean;
   spotify: boolean;
+  picovoice: boolean;
 }
 
 export interface ConfigDataMessage {
@@ -87,6 +102,7 @@ export interface ApiKeySetMessage {
 export type IncomingMessage =
   | StateChangeMessage
   | AudioLevelMessage
+  | MicStatusMessage
   | TranscriptMessage
   | AssistantTextMessage
   | ToolExecutedMessage

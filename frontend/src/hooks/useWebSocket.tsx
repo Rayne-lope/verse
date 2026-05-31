@@ -3,6 +3,7 @@ import type {
   ApiKeyStatus,
   ConnectionStatus,
   IncomingMessage,
+  MicStatusMessage,
   OutgoingMessage,
   VerseConfig,
   VerseState,
@@ -18,6 +19,7 @@ export interface WebSocketContextValue {
   audioLevel: number;
   transcript: string;
   assistantText: string;
+  micStatus: MicStatusMessage | null;
   config: VerseConfig | null;
   apiKeys: ApiKeyStatus | null;
   onboardingNeeded: boolean;
@@ -39,6 +41,7 @@ export function WebSocketProvider({
   const [audioLevel, setAudioLevel] = useState(0);
   const [transcript, setTranscript] = useState("");
   const [assistantText, setAssistantText] = useState("");
+  const [micStatus, setMicStatus] = useState<MicStatusMessage | null>(null);
   const [config, setConfig] = useState<VerseConfig | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyStatus | null>(null);
 
@@ -77,6 +80,9 @@ export function WebSocketProvider({
         break;
       case "audio_level":
         setAudioLevel(message.level);
+        break;
+      case "mic_status":
+        setMicStatus(message);
         break;
       case "transcript":
         setTranscript(message.text);
@@ -168,12 +174,13 @@ export function WebSocketProvider({
       audioLevel,
       transcript,
       assistantText,
+      micStatus,
       config,
       apiKeys,
       onboardingNeeded,
       send,
     }),
-    [connectionStatus, lastState, audioLevel, transcript, assistantText, config, apiKeys, onboardingNeeded, send]
+    [connectionStatus, lastState, audioLevel, transcript, assistantText, micStatus, config, apiKeys, onboardingNeeded, send]
   );
 
   return (
