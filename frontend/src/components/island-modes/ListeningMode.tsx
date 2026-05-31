@@ -19,7 +19,9 @@ function ListeningInner({ audioLevel, hasNotch = false }: ListeningProps) {
       animate="center"
       exit="exit"
     >
-      <div className="island-leading" />
+      <div className="island-leading">
+        <span className="island-state-label">Listening</span>
+      </div>
 
       {hasNotch && <div className="island-notch-spacer" />}
 

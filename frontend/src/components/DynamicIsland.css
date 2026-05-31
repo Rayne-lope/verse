@@ -88,7 +88,7 @@
 .island-shell[data-has-notch="true"][data-mode="listening"],
 .island-shell[data-has-notch="true"][data-mode="speaking"],
 .island-shell[data-has-notch="true"][data-mode="error"] {
-  --shell-bg: #000;
+  --shell-bg: #1d1d1e;
   background: var(--shell-bg);
   border-color: transparent;
   box-shadow: none;
@@ -96,7 +96,7 @@
 }
 
 .island-shell[data-mode="compact"] {
-  --shell-bg: #000;
+  --shell-bg: #1d1d1e;
   background: var(--shell-bg);
   border-color: transparent;
   box-shadow: none;
@@ -262,6 +262,15 @@
   letter-spacing: 0.15em;
   color: oklch(82% 0.01 var(--island-hue) / 0.7);
   font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+.island-state-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: oklch(92% 0.01 var(--island-hue) / 0.7);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ---------------- Listening mode ---------------- */
