@@ -90,33 +90,6 @@
   box-shadow: none;
 }
 
-/* Concave corner fillets for Mac bezel integration */
-.island-shell[data-has-notch="true"]::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: -16px;
-  width: 16px;
-  height: 16px;
-  background: var(--shell-bg);
-  border-bottom-right-radius: 16px;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.island-shell[data-has-notch="true"]::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: -16px;
-  width: 16px;
-  height: 16px;
-  background: var(--shell-bg);
-  border-bottom-left-radius: 16px;
-  pointer-events: none;
-  z-index: 1;
-}
-
 /* Audio-reactive glow halo behind the shell (sits inside, no layout impact) */
 .island-glow {
   position: absolute;
