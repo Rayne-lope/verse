@@ -25,7 +25,7 @@ function SpeakingInner({ transcript, audioLevel, thinking = false, preparing = f
       exit="exit"
     >
       <span className="island-icon island-icon--mini-wf" aria-hidden="true">
-        <Waveform audioLevel={audioLevel} bars={3} height={14} barWidth={2} gap={2} />
+        <Waveform audioLevel={audioLevel} bars={8} height={16} barWidth={2} gap={2} />
       </span>
       <span className="island-transcript-mask">
         <motion.span

@@ -37,9 +37,13 @@ interface NotchHint {
  *  notch dimensions exactly so the pill visually merges with the hardware notch.
  *  Active modes grow outward symmetrically from that anchor. */
 export function getShellSizes(notch: NotchHint | null): ShellSizes {
-  const compactW = notch?.hasNotch ? notch.width : 140;
-  const compactH = notch?.hasNotch ? notch.height : 34;
   const hasNotch = Boolean(notch?.hasNotch);
+  const notchHeight = notch?.hasNotch ? notch.height : 0;
+
+  // With notch: extend slightly wider and taller than the physical camera cutout to frame it beautifully.
+  const compactW = notch?.hasNotch ? notch.width + 24 : 140;
+  // Compact has 20px of visible area below the notch
+  const compactH = notch?.hasNotch ? notchHeight + 20 : 36;
 
   return {
     compact: {
@@ -47,40 +51,40 @@ export function getShellSizes(notch: NotchHint | null): ShellSizes {
       height: compactH,
       borderTopLeftRadius: hasNotch ? 0 : compactH / 2,
       borderTopRightRadius: hasNotch ? 0 : compactH / 2,
-      borderBottomLeftRadius: hasNotch ? 12 : compactH / 2,
-      borderBottomRightRadius: hasNotch ? 12 : compactH / 2,
+      borderBottomLeftRadius: hasNotch ? 16 : compactH / 2,
+      borderBottomRightRadius: hasNotch ? 16 : compactH / 2,
     },
     listening: {
       width: Math.max(280, compactW + 100),
-      height: compactH + 4,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderBottomLeftRadius: (compactH + 4) / 2,
-      borderBottomRightRadius: (compactH + 4) / 2,
+      height: hasNotch ? notchHeight + 38 : 42,
+      borderTopLeftRadius: hasNotch ? 0 : 42 / 2,
+      borderTopRightRadius: hasNotch ? 0 : 42 / 2,
+      borderBottomLeftRadius: hasNotch ? 20 : 42 / 2,
+      borderBottomRightRadius: hasNotch ? 20 : 42 / 2,
     },
     speaking: {
-      width: Math.max(380, compactW + 200),
-      height: compactH + 12,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 12) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 12) / 2,
-      borderBottomLeftRadius: (compactH + 12) / 2,
-      borderBottomRightRadius: (compactH + 12) / 2,
+      width: hasNotch ? Math.max(420, compactW + 240) : 380,
+      height: hasNotch ? notchHeight + 40 : 44,
+      borderTopLeftRadius: hasNotch ? 0 : 44 / 2,
+      borderTopRightRadius: hasNotch ? 0 : 44 / 2,
+      borderBottomLeftRadius: hasNotch ? 20 : 44 / 2,
+      borderBottomRightRadius: hasNotch ? 20 : 44 / 2,
     },
     expanded: {
-      width: 380,
-      height: 210,
+      width: 400,
+      height: hasNotch ? notchHeight + 210 : 220,
       borderTopLeftRadius: hasNotch ? 0 : 28,
       borderTopRightRadius: hasNotch ? 0 : 28,
       borderBottomLeftRadius: 28,
       borderBottomRightRadius: 28,
     },
     error: {
-      width: Math.max(240, compactW + 70),
-      height: compactH + 4,
-      borderTopLeftRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderTopRightRadius: hasNotch ? 0 : (compactH + 4) / 2,
-      borderBottomLeftRadius: (compactH + 4) / 2,
-      borderBottomRightRadius: (compactH + 4) / 2,
+      width: Math.max(260, compactW + 80),
+      height: hasNotch ? notchHeight + 38 : 42,
+      borderTopLeftRadius: hasNotch ? 0 : 42 / 2,
+      borderTopRightRadius: hasNotch ? 0 : 42 / 2,
+      borderBottomLeftRadius: hasNotch ? 20 : 42 / 2,
+      borderBottomRightRadius: hasNotch ? 20 : 42 / 2,
     },
   };
 }

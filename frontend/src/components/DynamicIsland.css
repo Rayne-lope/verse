@@ -45,6 +45,8 @@
 .island-shell {
   position: relative;
   pointer-events: auto;
+  box-sizing: border-box;
+  padding-top: var(--notch-height, 0px);
   background: oklch(0% 0 0 / 0.96);
   color: oklch(96% 0.01 var(--island-hue));
   border: 1px solid oklch(100% 0 0 / 0.06);

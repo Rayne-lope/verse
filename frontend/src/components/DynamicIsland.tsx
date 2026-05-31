@@ -31,6 +31,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
   });
 
   const notch = useNotchGeometry();
+  const notchHeight = notch?.hasNotch ? notch.height : 0;
   const shellSizes = useMemo(() => getShellSizes(notch), [notch]);
   const shellSize = shellSizes[mode];
 
@@ -120,9 +121,9 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           }}
           transition={ISLAND_SPRING}
           style={{
-            // Audio reactive subtle scale on listening/speaking
             scale: 1,
-          }}
+            "--notch-height": `${notchHeight}px`,
+          } as React.CSSProperties}
         >
           {/* Subtle audio-reactive glow halo */}
           <div
