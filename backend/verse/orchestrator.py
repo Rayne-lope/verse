@@ -380,7 +380,13 @@ class Orchestrator:
             self._latency_metadata(transcript_chars=len(transcript))
             stt_duration = time.time() - start_stt
             print(f"[Debug] STT took: {stt_duration:.2f}s")
-            
+            if not transcript.strip():
+                print("Transcript is empty, returning to listening state.")
+                self.state_machine.force_idle()
+                if self.conversation_mode_active:
+                    self.start_auto_listening()
+                return ""
+
             if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
                 self._current_latency_metrics["stt_ms"] = int(stt_duration * 1000)
 

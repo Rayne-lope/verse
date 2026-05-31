@@ -107,3 +107,4 @@
 {"id":"int-5960b500","kind":"field_change","created_at":"2026-05-31T14:29:37.746766Z","actor":"Rayne-lope","issue_id":"verse-hpt","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-094a8476","kind":"field_change","created_at":"2026-05-31T16:01:11.900426Z","actor":"Rayne-lope","issue_id":"verse-wisp-5d8","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-661304cd","kind":"field_change","created_at":"2026-05-31T16:16:54.579585Z","actor":"Rayne-lope","issue_id":"verse-wisp-ymd","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-d6449883","kind":"field_change","created_at":"2026-05-31T16:24:48.918973Z","actor":"Rayne-lope","issue_id":"verse-wisp-qki","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
