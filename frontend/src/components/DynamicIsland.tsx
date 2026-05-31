@@ -148,7 +148,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
           <div
             className="island-glow"
             style={{
-              opacity: mode === "listening" || mode === "speaking"
+              opacity: (mode === "listening" || mode === "speaking") && !notch?.hasNotch
                 ? 0.35 + Math.min(audioLevel, 1) * 0.5
                 : 0,
             }}
