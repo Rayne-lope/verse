@@ -30,6 +30,164 @@ body,
   background: transparent;
   user-select: none;
   cursor: default;
+  transition: background-image 500ms ease, background-color 500ms ease;
+}
+
+/* Assistant active state theme colors */
+.shell-surface[data-state="idle"] {
+  --glow-hue: 255;
+  --glow-chroma: 0.09;
+}
+.shell-surface[data-state="listening"] {
+  --glow-hue: 195;
+  --glow-chroma: 0.17;
+}
+.shell-surface[data-state="thinking"] {
+  --glow-hue: 300;
+  --glow-chroma: 0.18;
+}
+.shell-surface[data-state="speaking"] {
+  --glow-hue: 350;
+  --glow-chroma: 0.19;
+}
+.shell-surface[data-state="error"] {
+  --glow-hue: 25;
+  --glow-chroma: 0.2;
+}
+
+/* Canvas Mode Fullscreen Styles */
+.shell-surface[data-display-mode="canvas"] {
+  background-color: oklch(10% 0.005 250);
+  background-image:
+    radial-gradient(circle at center, oklch(65% var(--glow-chroma) var(--glow-hue) / 0.08) 0%, transparent 60%),
+    radial-gradient(oklch(100% 0 0 / 0.12) 1.2px, transparent 1.2px);
+  background-size: 100% 100%, 28px 28px;
+  background-position: center;
+  animation: canvasFadeIn 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes canvasFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Widget Mode Expand Button */
+.display-mode-toggle {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  z-index: 10;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: oklch(100% 0 0 / 0.06);
+  border: 1px solid oklch(100% 0 0 / 0.1);
+  color: oklch(65% 0.01 250);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  opacity: 0;
+  scale: 0.9;
+  transition: opacity 200ms ease, scale 200ms ease, background 200ms ease, color 200ms ease;
+}
+
+.shell-surface[data-display-mode="widget"]:hover .display-mode-toggle {
+  opacity: 1;
+  scale: 1;
+}
+
+.display-mode-toggle:hover {
+  background: oklch(100% 0 0 / 0.16);
+  border-color: oklch(100% 0 0 / 0.22);
+  color: oklch(98% 0 0);
+}
+
+/* Canvas Mode Header & Controls */
+.canvas-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 68px;
+  padding: 0 28px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+  animation: slideDown 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.canvas-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-glow {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: oklch(72% var(--glow-chroma) var(--glow-hue));
+  box-shadow: 0 0 12px oklch(72% var(--glow-chroma) var(--glow-hue));
+  transition: background 450ms ease, box-shadow 450ms ease;
+}
+
+.logo-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: oklch(92% 0.01 250);
+}
+
+.canvas-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.canvas-control-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: oklch(100% 0 0 / 0.04);
+  border: 1px solid oklch(100% 0 0 / 0.08);
+  color: oklch(70% 0.01 250);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease, transform 150ms ease;
+}
+
+.canvas-control-btn:hover {
+  background: oklch(100% 0 0 / 0.1);
+  border-color: oklch(100% 0 0 / 0.18);
+  color: oklch(98% 0 0);
+  transform: translateY(-1px);
+}
+
+.canvas-control-btn:active {
+  transform: translateY(0);
 }
 
 .window-drag-region {
@@ -47,6 +205,7 @@ body,
   height: 8px;
   border-radius: 999px;
   background: oklch(70% 0.02 250);
+  transition: top 300ms ease, right 300ms ease, scale 300ms ease, background 180ms ease;
 }
 
 .ws-status[data-status="open"] {
@@ -61,6 +220,12 @@ body,
   background: oklch(64% 0.2 25);
 }
 
+.shell-surface[data-display-mode="canvas"] .ws-status {
+  top: 28px;
+  right: 124px;
+  scale: 1.15;
+}
+
 .privacy-indicator {
   position: absolute;
   left: 8px;
@@ -73,13 +238,23 @@ body,
   scale: 0.82;
   background: oklch(72% 0.18 30);
   box-shadow: 0 0 0 0 oklch(72% 0.18 30 / 0);
-  transition: opacity 180ms ease, scale 180ms ease, background 180ms ease;
+  transition: opacity 180ms ease, scale 180ms ease, background 180ms ease, top 300ms ease, left 300ms ease;
+}
+
+.shell-surface[data-display-mode="canvas"] .privacy-indicator {
+  top: 28px;
+  left: 104px;
 }
 
 .privacy-indicator[data-active="true"] {
   opacity: 1;
   scale: 1;
   box-shadow: 0 0 12px oklch(72% 0.18 30 / 0.55);
+}
+
+.shell-surface[data-display-mode="canvas"] .privacy-indicator[data-active="true"] {
+  scale: 1.15;
+  box-shadow: 0 0 14px oklch(72% 0.18 30 / 0.6);
 }
 
 .privacy-indicator[data-mode="ambient"] {
