@@ -3,16 +3,18 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import tempfile
+import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from verse.config import TTSConfig
-from verse.tts.base import TTSAdapter
+from verse.tts.base import TTSAdapter, RealtimeTTSAdapter
 
+logger = logging.getLogger(__name__)
 DEFAULT_VOICE = "id-ID-GadisNeural"
 
 
-class EdgeTTSAdapter(TTSAdapter):
+class EdgeTTSAdapter(TTSAdapter, RealtimeTTSAdapter):
     def __init__(
         self,
         config: TTSConfig | None = None,
@@ -73,3 +75,59 @@ class EdgeTTSAdapter(TTSAdapter):
         finally:
             mp3_path.unlink(missing_ok=True)
             wav_path.unlink(missing_ok=True)
+
+    async def stream_pcm(self, text: str) -> AsyncGenerator[bytes, None]:
+        if not text.strip():
+            return
+
+        try:
+            import edge_tts
+        except ImportError as exc:
+            raise RuntimeError(
+                "edge-tts is required for EdgeTTSAdapter. Run: poetry install"
+            ) from exc
+
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel", "error",
+            "-i", "pipe:0",
+            "-f", "s16le",
+            "-acodec", "pcm_s16le",
+            "-ac", "1",
+            "-ar", "24000",
+            "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+        )
+
+        async def feed_mp3():
+            try:
+                async for mp3_chunk in self.stream(text):
+                    proc.stdin.write(mp3_chunk)
+                    await proc.stdin.drain()
+            except Exception as exc:
+                logger.error(f"Error feeding MP3 to ffmpeg: {exc}")
+            finally:
+                try:
+                    proc.stdin.close()
+                    await proc.stdin.wait_closed()
+                except Exception:
+                    pass
+
+        feed_task = asyncio.create_task(feed_mp3())
+
+        try:
+            while True:
+                pcm = await proc.stdout.read(4096)
+                if not pcm:
+                    break
+                yield pcm
+        finally:
+            await feed_task
+            try:
+                if proc.returncode is None:
+                    proc.kill()
+                    await proc.wait()
+            except Exception:
+                pass

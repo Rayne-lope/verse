@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from typing import Callable
 
 import numpy as np
@@ -10,8 +11,8 @@ import sounddevice as sd
 class StreamingPlayer:
     """
     Plays 24 kHz int16 mono PCM chunks in real time as they arrive.
-    Audio is appended to an in-memory numpy buffer; a sounddevice callback
-    drains it continuously. Supports immediate barge-in via clear().
+    Audio chunks are appended to a collections.deque; a sounddevice callback
+    drains them continuously. Supports immediate barge-in via clear().
     """
 
     SAMPLE_RATE = 24_000
@@ -25,7 +26,9 @@ class StreamingPlayer:
     ) -> None:
         self._on_audio_level = on_audio_level
         self._lock = threading.Lock()
-        self._buffer = np.empty(0, dtype=np.int16)
+        self._chunks: deque[np.ndarray] = deque()
+        self._current_chunk: np.ndarray | None = None
+        self._current_offset = 0
         self._playing = False          # True while more audio is expected this turn
         self._stream: sd.OutputStream | None = None
         self._finished = threading.Event()
@@ -36,9 +39,11 @@ class StreamingPlayer:
 
     async def enqueue(self, pcm_bytes: bytes) -> None:
         """Append a PCM chunk. Starts the OutputStream if it isn't running."""
+        if not pcm_bytes:
+            return
         chunk = np.frombuffer(pcm_bytes, dtype=np.int16)
         with self._lock:
-            self._buffer = np.concatenate([self._buffer, chunk])
+            self._chunks.append(chunk)
             self._playing = True
         if self._stream is None or not self._stream.active:
             self._start_stream()
@@ -60,7 +65,9 @@ class StreamingPlayer:
         """Immediately discard buffered audio and stop playback (barge-in)."""
         import asyncio
         with self._lock:
-            self._buffer = np.empty(0, dtype=np.int16)
+            self._chunks.clear()
+            self._current_chunk = None
+            self._current_offset = 0
             self._playing = False
         # Allow callback two ticks to see the empty buffer and raise CallbackStop.
         await asyncio.sleep(0.05)
@@ -70,7 +77,9 @@ class StreamingPlayer:
         """Release all resources."""
         with self._lock:
             self._playing = False
-            self._buffer = np.empty(0, dtype=np.int16)
+            self._chunks.clear()
+            self._current_chunk = None
+            self._current_offset = 0
         self._close_stream()
 
     @property
@@ -110,22 +119,40 @@ class StreamingPlayer:
         time_info,
         status: sd.CallbackFlags,
     ) -> None:
+        filled = 0
+        played_slices = []
+
         with self._lock:
-            available = len(self._buffer)
-            if available == 0:
-                outdata.fill(0)
+            while filled < frames:
+                if self._current_chunk is None:
+                    if self._chunks:
+                        self._current_chunk = self._chunks.popleft()
+                        self._current_offset = 0
+                    else:
+                        break
+
+                chunk_len = len(self._current_chunk)
+                available = chunk_len - self._current_offset
+                needed = frames - filled
+                n = min(needed, available)
+
+                outdata[filled : filled + n, 0] = self._current_chunk[self._current_offset : self._current_offset + n]
+                played_slices.append(self._current_chunk[self._current_offset : self._current_offset + n])
+
+                self._current_offset += n
+                filled += n
+
+                if self._current_offset >= chunk_len:
+                    self._current_chunk = None
+                    self._current_offset = 0
+
+            if filled < frames:
+                outdata[filled:].fill(0)
                 if not self._playing:
                     raise sd.CallbackStop
-                return  # silence; more audio expected
 
-            n = min(frames, available)
-            outdata[:n, 0] = self._buffer[:n]
-            if n < frames:
-                outdata[n:].fill(0)
-            chunk = self._buffer[:n].copy()
-            self._buffer = self._buffer[n:]
-
-        if self._on_audio_level is not None:
+        if self._on_audio_level is not None and played_slices:
+            chunk = np.concatenate(played_slices)
             rms = float(np.sqrt(np.mean((chunk.astype(np.float32) / 32767.0) ** 2)))
             level = min(1.0, rms * 5.0)
             try:
