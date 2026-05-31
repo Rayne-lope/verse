@@ -151,7 +151,7 @@ export function OnboardingFlow({ open, onClose }: Props) {
               <div className="onboarding-done-icon">✓</div>
               <h2 className="onboarding-step-title">You're all set!</h2>
               <p className="onboarding-step-desc">
-                Hold <strong style={{ color: "oklch(78% 0.06 255)" }}>Alt+Space</strong> to talk to Verse. You can update keys and settings anytime by right-clicking the orb.
+                Click the orb once to start listening, then click it again to stop. You can still use <strong style={{ color: "oklch(78% 0.06 255)" }}>Alt+Space</strong> and update settings anytime by right-clicking the orb.
               </p>
               <div className="onboarding-footer">
                 <span />

@@ -26,15 +26,23 @@ body,
   display: flex;
   justify-content: center;
   align-items: center;
+  position: relative;
   background: transparent;
   user-select: none;
   cursor: default;
+}
+
+.window-drag-region {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
 .ws-status {
   position: absolute;
   top: 8px;
   right: 8px;
+  z-index: 2;
   width: 8px;
   height: 8px;
   border-radius: 999px;

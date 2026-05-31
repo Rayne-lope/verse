@@ -88,7 +88,8 @@ function App() {
   }, [send]);
 
   return (
-    <main className="shell-surface" data-tauri-drag-region>
+    <main className="shell-surface">
+      <div className="window-drag-region" data-tauri-drag-region />
       <Bubble onOpenSettings={handleOpenSettings} />
       <div
         className="ws-status"

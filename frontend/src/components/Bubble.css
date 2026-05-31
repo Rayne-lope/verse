@@ -21,7 +21,9 @@
   justify-content: center;
   align-items: center;
   position: relative;
+  z-index: 1;
   background: transparent;
+  pointer-events: none;
 }
 
 .orb {
@@ -39,6 +41,7 @@
   height: 120px;
   border-radius: 50%;
   position: relative;
+  pointer-events: auto;
   transform: translateZ(0);
   scale: 1;
   transition: --orb-hue 450ms ease, --orb-chroma 450ms ease, scale 160ms ease;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useAudioReactiveOrb } from "../hooks/useAudioReactiveOrb";
 import { useMouseGaze } from "../hooks/useMouseGaze";
@@ -69,10 +70,18 @@ export function Bubble({ onOpenSettings }: BubbleProps) {
     }
   }, [canToggleConversation, clearActivation, send, state]);
 
+  const handleBubbleKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      handleBubbleClick();
+    },
+    [handleBubbleClick]
+  );
+
   return (
     <div
       className="bubble-stage"
-      data-tauri-drag-region
       onContextMenu={(e) => { e.preventDefault(); onOpenSettings(); }}
     >
       <div
@@ -85,7 +94,9 @@ export function Bubble({ onOpenSettings }: BubbleProps) {
         tabIndex={canToggleConversation ? 0 : -1}
         aria-disabled={!canToggleConversation}
         aria-label={`Verse state: ${state}`}
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={handleBubbleClick}
+        onKeyDown={handleBubbleKeyDown}
       >
         <div className="orb__aura" />
         <div className="orb__glow" />
