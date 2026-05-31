@@ -11,6 +11,7 @@ class State(StrEnum):
     IDLE = "idle"
     LISTENING = "listening"
     THINKING = "thinking"
+    PREPARING_AUDIO = "preparing_audio"
     SPEAKING = "speaking"
     ERROR = "error"
 
@@ -19,6 +20,7 @@ class StateTrigger(StrEnum):
     HOTKEY_PRESS = "hotkey_press"
     HOTKEY_RELEASE = "hotkey_release"
     TTS_READY = "tts_ready"
+    PLAYBACK_START = "playback_start"
     AUDIO_DONE = "audio_done"
     ERROR = "error"
     ERROR_TIMEOUT = "error_timeout"
@@ -45,7 +47,9 @@ class StateMachine:
         (State.IDLE, StateTrigger.HOTKEY_PRESS): State.LISTENING,
         (State.LISTENING, StateTrigger.HOTKEY_RELEASE): State.THINKING,
         (State.LISTENING, StateTrigger.AUDIO_DONE): State.IDLE,
-        (State.THINKING, StateTrigger.TTS_READY): State.SPEAKING,
+        (State.THINKING, StateTrigger.TTS_READY): State.PREPARING_AUDIO,
+        (State.PREPARING_AUDIO, StateTrigger.PLAYBACK_START): State.SPEAKING,
+        (State.PREPARING_AUDIO, StateTrigger.AUDIO_DONE): State.IDLE,
         (State.SPEAKING, StateTrigger.AUDIO_DONE): State.IDLE,
         (State.ERROR, StateTrigger.ERROR_TIMEOUT): State.IDLE,
     }
@@ -126,6 +130,9 @@ class StateMachine:
 
     def tts_ready(self) -> StateChangedEvent:
         return self.transition(StateTrigger.TTS_READY)
+
+    def playback_started(self) -> StateChangedEvent:
+        return self.transition(StateTrigger.PLAYBACK_START)
 
     def audio_done(self) -> StateChangedEvent:
         return self.transition(StateTrigger.AUDIO_DONE)

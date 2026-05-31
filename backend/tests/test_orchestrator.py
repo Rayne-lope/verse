@@ -119,6 +119,36 @@ def test_handle_audio_executes_tool_then_replies():
     assert any(m.get("role") == "tool" for m in second_messages)
 
 
+def test_default_voice_tool_iterations_limit_agentic_loops():
+    calls = []
+
+    def do_it():
+        calls.append("tool")
+        return "done"
+
+    registry = _registry_with("do_it", do_it)
+    machine = StateMachine(initial_state=State.THINKING)
+    tool_call = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "do_it", "arguments": "{}"},
+    }
+    llm = FakeLLM(
+        [
+            LLMResponse(text="", tool_calls=[tool_call]),
+            LLMResponse(text="", tool_calls=[tool_call]),
+            LLMResponse(text="Final answer.", tool_calls=[]),
+        ]
+    )
+    orch, _ = _orchestrator(FakeSTT("do the long task"), llm, FakeTTS(), registry, machine)
+
+    reply = asyncio.run(orch.handle_audio(b"audio"))
+
+    assert reply == "Final answer."
+    assert calls == ["tool", "tool"]
+    assert len(llm.requests) == 3
+
+
 def test_handle_audio_uses_local_intent_before_llm():
     registry = _registry_with("get_time", lambda: "It is noon.")
     machine = StateMachine(initial_state=State.THINKING)
@@ -298,6 +328,30 @@ def test_conversation_mode_auto_listens_after_speak():
     assert machine.state is State.LISTENING
     assert recorder.is_recording is True
     assert orch._auto_listening is True
+
+
+def test_speak_uses_preparing_audio_before_playback():
+    machine = StateMachine(initial_state=State.THINKING)
+    states = []
+
+    def play(audio, *, on_audio_level=None, stop_event=None):
+        states.append(machine.state)
+
+    orch = Orchestrator(
+        stt=FakeSTT("x"),
+        llm=FakeLLM([]),
+        tts=FakeTTS(),
+        registry=ToolRegistry(),
+        state_machine=machine,
+        play=play,
+    )
+    machine.subscribe(lambda event: states.append(event.state))
+
+    asyncio.run(orch._speak("hello"))
+
+    assert State.PREPARING_AUDIO in states
+    assert State.SPEAKING in states
+    assert states[-1] is State.IDLE
 
 
 def test_request_barge_in_interrupts_speaking_and_starts_listening():
@@ -516,8 +570,7 @@ def test_conversational_local_intent_replies(monkeypatch):
     
     reply = asyncio.run(orch.handle_audio(b"audio"))
     
-    # Verify that the reply is in friendly Indonesian instead of raw "System volume set to 25%."
-    assert "diatur ke 25%" in reply
-    assert "Rafi" in reply
-    assert tts.spoken == [reply + "."]
-    assert played == [(reply + ".").encode()]
+    # Verify that the reply is a local template instead of raw "System volume set to 25%."
+    assert "volume aku set ke 25%" in reply
+    assert tts.spoken == [reply]
+    assert played == [reply.encode()]

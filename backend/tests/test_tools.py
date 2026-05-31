@@ -92,7 +92,7 @@ def test_list_definitions_respects_enabled_order():
 
 def test_build_default_registry_registers_core_tools():
     registry = build_default_registry()
-    for name in ["play_music", "pause_music", "open_app", "web_search", "get_time"]:
+    for name in ["play_music", "pause_music", "open_app", "close_app", "web_search", "get_time"]:
         assert name in registry
 
 

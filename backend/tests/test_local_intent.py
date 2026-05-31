@@ -15,12 +15,24 @@ def test_local_intent_routes_open_known_apps():
 
     vscode = router.route("buka VS Code")
     spotify = router.route("open spotify")
+    notes = router.route("buka notes")
 
     assert vscode is not None
     assert vscode.tool_name == "open_app"
     assert vscode.arguments == {"app_name": "Visual Studio Code"}
     assert spotify is not None
     assert spotify.arguments == {"app_name": "Spotify"}
+    assert notes is not None
+    assert notes.arguments == {"app_name": "Notes"}
+
+
+def test_local_intent_routes_close_known_apps():
+    match = LocalIntentRouter().route("tutup chrome")
+
+    assert match is not None
+    assert match.intent == "system.close_app"
+    assert match.tool_name == "close_app"
+    assert match.arguments == {"app_name": "Google Chrome"}
 
 
 def test_local_intent_routes_music_controls():
@@ -28,6 +40,7 @@ def test_local_intent_routes_music_controls():
 
     play = router.route("putar musik jazz")
     pause = router.route("stop musik")
+    resume = router.route("lanjutkan spotify")
     play_playlist = router.route("putar playlist lofi")
     play_album = router.route("play album thriller")
     play_artist = router.route("mainkan artist queen")
@@ -38,6 +51,11 @@ def test_local_intent_routes_music_controls():
 
     assert pause is not None
     assert pause.tool_name == "pause_music"
+
+    assert resume is not None
+    assert resume.intent == "music.resume"
+    assert resume.tool_name == "play_music"
+    assert resume.arguments == {}
 
     assert play_playlist is not None
     assert play_playlist.tool_name == "play_music"
@@ -65,6 +83,11 @@ def test_local_intent_routes_settings_controls():
     assert vol_set is not None
     assert vol_set.tool_name == "set_volume"
     assert vol_set.arguments == {"level": 60}
+
+    vol_clamped = router.route("volume 150")
+    assert vol_clamped is not None
+    assert vol_clamped.tool_name == "set_volume"
+    assert vol_clamped.arguments == {"level": 100}
 
     vol_up = router.route("gedein volume")
     assert vol_up is not None
@@ -163,3 +186,29 @@ def test_local_intent_routes_browser():
     assert nav_site_dot is not None
     assert nav_site_dot.tool_name == "browser_navigate"
     assert nav_site_dot.arguments == {"url": "wikipedia.org"}
+
+
+def test_local_intent_routes_web_notes_and_memory():
+    router = LocalIntentRouter()
+
+    search = router.route("search web for harga emas")
+    note = router.route("catat beli susu besok pagi")
+    remember = router.route("remember that I prefer short answers")
+
+    assert search is not None
+    assert search.intent == "web.search"
+    assert search.tool_name == "web_search"
+    assert search.arguments == {"query": "harga emas"}
+
+    assert note is not None
+    assert note.intent == "notes.take"
+    assert note.tool_name == "take_note"
+    assert note.arguments == {
+        "title": "beli susu besok pagi",
+        "content": "beli susu besok pagi",
+    }
+
+    assert remember is not None
+    assert remember.intent == "memory.remember"
+    assert remember.tool_name == "remember"
+    assert remember.arguments == {"content": "i prefer short answers"}

@@ -13,15 +13,27 @@ def test_valid_state_flow_emits_events():
     machine.hotkey_pressed()
     machine.hotkey_released()
     machine.tts_ready()
+    machine.playback_started()
     machine.audio_done()
 
     assert machine.state is State.IDLE
     assert [event.state for event in events] == [
         State.LISTENING,
         State.THINKING,
+        State.PREPARING_AUDIO,
         State.SPEAKING,
         State.IDLE,
     ]
+
+
+def test_preparing_audio_can_finish_without_speaking():
+    machine = StateMachine(initial_state=State.THINKING)
+
+    machine.tts_ready()
+    assert machine.state is State.PREPARING_AUDIO
+
+    machine.audio_done()
+    assert machine.state is State.IDLE
 
 
 def test_invalid_transition_raises_without_changing_state():
@@ -85,5 +97,4 @@ def test_state_machine_force_idle():
     assert event.state is State.IDLE
     assert machine.state is State.IDLE
     assert len(events) == 1
-
 

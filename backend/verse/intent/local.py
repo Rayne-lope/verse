@@ -28,6 +28,15 @@ class LocalIntentRouter:
         "chrome": "Google Chrome",
         "google chrome": "Google Chrome",
         "safari": "Safari",
+        "notes": "Notes",
+        "note": "Notes",
+        "catatan": "Notes",
+        "calendar": "Calendar",
+        "kalender": "Calendar",
+        "reminders": "Reminders",
+        "pengingat": "Reminders",
+        "mail": "Mail",
+        "email": "Mail",
     }
 
     def route(self, transcript: str) -> LocalIntentMatch | None:
@@ -47,7 +56,15 @@ class LocalIntentRouter:
         if match is not None:
             return match
 
+        match = self._route_resume_music(text)
+        if match is not None:
+            return match
+
         match = self._route_open_app(text)
+        if match is not None:
+            return match
+
+        match = self._route_close_app(text)
         if match is not None:
             return match
 
@@ -72,6 +89,18 @@ class LocalIntentRouter:
             return match
 
         match = self._route_browser(text)
+        if match is not None:
+            return match
+
+        match = self._route_web_search(text)
+        if match is not None:
+            return match
+
+        match = self._route_note(text)
+        if match is not None:
+            return match
+
+        match = self._route_remember(text)
         if match is not None:
             return match
 
@@ -117,6 +146,18 @@ class LocalIntentRouter:
             )
         return None
 
+    def _route_resume_music(self, text: str) -> LocalIntentMatch | None:
+        if re.fullmatch(
+            r"(resume|lanjutkan|putar lagi|nyalakan)( musik| music| lagu| spotify| playback)?",
+            text,
+        ):
+            return LocalIntentMatch(
+                intent="music.resume",
+                confidence=0.94,
+                tool_name="play_music",
+            )
+        return None
+
     def _route_open_app(self, text: str) -> LocalIntentMatch | None:
         match = re.fullmatch(r"(open|launch|buka|jalankan) (?P<app>.+)", text)
         if match is None:
@@ -130,6 +171,22 @@ class LocalIntentRouter:
             intent="system.open_app",
             confidence=0.96,
             tool_name="open_app",
+            arguments={"app_name": app},
+        )
+
+    def _route_close_app(self, text: str) -> LocalIntentMatch | None:
+        match = re.fullmatch(r"(close|quit|tutup|keluar dari|matikan) (?P<app>.+)", text)
+        if match is None:
+            return None
+
+        app = self._APP_ALIASES.get(match.group("app").strip())
+        if app is None:
+            return None
+
+        return LocalIntentMatch(
+            intent="system.close_app",
+            confidence=0.94,
+            tool_name="close_app",
             arguments={"app_name": app},
         )
 
@@ -170,7 +227,7 @@ class LocalIntentRouter:
         # Check direct volume assignment e.g. "setel volume ke 50", "volume 80"
         match = re.search(r"\b(setel |atur )?volume( ke)? (?P<level>\d+)\b", text)
         if match:
-            level = int(match.group("level"))
+            level = _clamp_percent(match.group("level"))
             return LocalIntentMatch(
                 intent="system.set_volume",
                 confidence=0.96,
@@ -275,7 +332,7 @@ class LocalIntentRouter:
         # Check direct brightness assignment e.g. "setel brightness ke 50", "kecerahan 80"
         match = re.search(r"\b(setel |atur |ganti )?(brightness|kecerahan)( layar)?( ke)? (?P<level>\d+)\b", text)
         if match:
-            level = int(match.group("level"))
+            level = _clamp_percent(match.group("level"))
             return LocalIntentMatch(
                 intent="system.set_brightness",
                 confidence=0.96,
@@ -399,6 +456,69 @@ class LocalIntentRouter:
 
         return None
 
+    def _route_web_search(self, text: str) -> LocalIntentMatch | None:
+        match = re.fullmatch(r"(cari|search) (?P<query>.+) (di web|di internet|on the web|online)", text)
+        if match is None:
+            match = re.fullmatch(
+                r"(search web for|search the web for|web search|cari di web|cari di internet|cari internet|cari) (?P<query>.+)",
+                text,
+            )
+        if match is None:
+            match = re.fullmatch(r"(?P<query>.+) (di web|di internet|online)", text)
+        if match is None:
+            return None
+
+        query = match.group("query").strip()
+        if not query:
+            return None
+        return LocalIntentMatch(
+            intent="web.search",
+            confidence=0.9,
+            tool_name="web_search",
+            arguments={"query": query},
+        )
+
+    def _route_note(self, text: str) -> LocalIntentMatch | None:
+        match = re.fullmatch(
+            r"(take note|buat catatan|catat|catetin|tulis catatan)(?P<content> .+)?",
+            text,
+        )
+        if match is None:
+            return None
+
+        content = (match.group("content") or "").strip()
+        if not content:
+            return LocalIntentMatch(
+                intent="notes.open",
+                confidence=0.9,
+                tool_name="open_app",
+                arguments={"app_name": "Notes"},
+            )
+
+        return LocalIntentMatch(
+            intent="notes.take",
+            confidence=0.94,
+            tool_name="take_note",
+            arguments={"title": _note_title(content), "content": content},
+        )
+
+    def _route_remember(self, text: str) -> LocalIntentMatch | None:
+        match = re.fullmatch(
+            r"(remember this|remember that|ingat ini|ingat bahwa|tolong ingat) (?P<content>.+)",
+            text,
+        )
+        if match is None:
+            return None
+        content = match.group("content").strip()
+        if not content:
+            return None
+        return LocalIntentMatch(
+            intent="memory.remember",
+            confidence=0.95,
+            tool_name="remember",
+            arguments={"content": content},
+        )
+
 
 def _normalize(text: str) -> str:
     lowered = text.lower().strip()
@@ -411,3 +531,13 @@ def _strip_music_prefix(text: str) -> str:
     text = re.sub(r"^(music|musik|song|lagu|track|playlist|album|artist)\b", "", text).strip()
     text = re.sub(r"^(yang|for|about|tentang)\b", "", text).strip()
     return text
+
+
+def _clamp_percent(value: str) -> int:
+    return max(0, min(100, int(value)))
+
+
+def _note_title(content: str) -> str:
+    words = content.split()
+    title = " ".join(words[:6]).strip()
+    return title[:48] if title else "Voice Note"

@@ -5,8 +5,15 @@ def test_load_config_defaults_when_file_is_missing(tmp_path):
     config = load_config(tmp_path / "missing.toml")
 
     assert config == AppConfig()
-    assert config.llm.max_history == 10
+    assert config.llm.max_history == 4
     assert config.llm.base_url == "https://api.deepseek.com"
+    assert config.memory.inject_facts == 6
+    assert config.voice.max_tool_iterations == 2
+    assert config.vad.speech_start_ms == 100
+    assert config.vad.min_utterance_ms == 350
+    assert config.vad.end_silence_ms == 700
+    assert config.vad.pre_roll_ms == 250
+    assert config.vad.followup_timeout_s == 3.0
 
 
 def test_load_config_parses_llm_base_url(tmp_path):
@@ -45,6 +52,9 @@ enabled = ["open_app"]
 [vad]
 enabled = false
 start_threshold = 0.65
+
+[voice]
+max_tool_iterations = 3
 """,
         encoding="utf-8",
     )
@@ -64,6 +74,7 @@ start_threshold = 0.65
     assert config.vad.rms_fallback_enabled is True
     assert config.vad.rms_start_level == 0.03
     assert config.vad.rms_end_level == 0.02
+    assert config.voice.max_tool_iterations == 3
 
 
 def test_load_config_parses_vad_rms_fallback_values(tmp_path):

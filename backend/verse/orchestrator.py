@@ -94,7 +94,7 @@ class Orchestrator:
         on_tool_executed: Callable[[str, str], None] | None = None,
         on_audio_level: Callable[[float], None] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        max_tool_iterations: int = 5,
+        max_tool_iterations: int | None = None,
         vad_manager: Any | None = None,
         vad_state_machine: Any | None = None,
         pre_vad_audio_hook: Callable[[Any], Any] | None = None,
@@ -116,7 +116,11 @@ class Orchestrator:
         self.on_tool_executed = on_tool_executed
         self.on_audio_level = on_audio_level
         self.system_prompt = system_prompt
-        self.max_tool_iterations = max_tool_iterations
+        self.max_tool_iterations = (
+            max_tool_iterations
+            if max_tool_iterations is not None
+            else self.config.voice.max_tool_iterations
+        )
         self.local_intent_router = LocalIntentRouter()
 
         self.pre_vad_audio_hook = pre_vad_audio_hook
@@ -692,47 +696,94 @@ class Orchestrator:
 
     def _generate_conversational_reply(self, intent: str, arguments: dict[str, Any], result: str) -> str:
         # If the tool execution failed or returned custom guidance, return the raw result
-        if result.startswith("Failed") or result.startswith("I cannot") or "failed" in result.lower():
+        lower_result = result.lower()
+        if (
+            result.startswith("Failed")
+            or result.startswith("I cannot")
+            or "failed" in lower_result
+            or "not found" in lower_result
+            or "does not exist" in lower_result
+        ):
             return result
 
-        # Since our user is Indonesian, we default to Indonesian for a warm personal touch
         if intent == "system.set_volume":
             level = arguments.get("level", 50)
-            return f"Siap, volume sekarang sudah diatur ke {level}%, Rafi! 🔉"
+            return f"Siap, volume aku set ke {level}%."
             
         elif intent == "system.get_volume":
             import re
             match = re.search(r"\d+", result)
             level = match.group(0) if match else "50"
-            return f"Volume sistem saat ini berada di {level}%, Rafi. 🔊"
+            return f"Volume sekarang {level}%."
             
         elif intent == "system.set_muted":
             muted = arguments.get("muted", False)
             if muted:
-                return "Suara sistem sudah dimatikan ya, Rafi. 🔕"
-            return "Suara sistem sudah dinyalakan kembali, Rafi. 🔊"
+                return "Siap, suara aku mute."
+            return "Siap, suara aku nyalakan lagi."
                 
         elif intent == "system.set_dark_mode":
             enabled = arguments.get("enabled", False)
             if enabled:
-                return "Mode gelap sudah aktif, Rafi. 🌚"
-            return "Mode terang sudah aktif, Rafi. ☀️"
+                return "Siap, mode gelap aktif."
+            return "Siap, mode terang aktif."
                 
         elif intent == "system.set_dnd":
             enabled = arguments.get("enabled", False)
             if enabled:
-                return "Do Not Disturb sudah aktif. Kamu nggak bakal diganggu notifikasi dulu, Rafi. 😎🔕"
-            return "Do Not Disturb sudah dimatikan, Rafi. Notifikasi siap masuk lagi! 😊"
+                return "Siap, Do Not Disturb aktif."
+            return "Siap, Do Not Disturb aku matikan."
                 
         elif intent == "system.set_brightness":
             level = arguments.get("level", 50)
-            return f"Siap, kecerahan layar sudah diatur ke {level}%, Rafi! ☀️"
+            return f"Siap, kecerahan aku set ke {level}%."
             
         elif intent == "system.get_brightness":
             import re
             match = re.search(r"\d+", result)
             level = match.group(0) if match else "50"
-            return f"Kecerahan layar saat ini berada di {level}%, Rafi. ☀️"
+            return f"Kecerahan layar sekarang {level}%."
+
+        elif intent == "system.open_app":
+            app_name = arguments.get("app_name", "aplikasi")
+            return f"Siap, aku buka {app_name}."
+
+        elif intent == "system.close_app":
+            app_name = arguments.get("app_name", "aplikasi")
+            return f"Siap, aku tutup {app_name}."
+
+        elif intent == "music.pause":
+            return "Oke, musik aku pause."
+
+        elif intent == "music.resume":
+            return "Oke, musik aku lanjutkan."
+
+        elif intent == "music.play":
+            query = arguments.get("query")
+            if query:
+                return f"Oke, aku putar {query}."
+            return "Oke, musik aku lanjutkan."
+
+        elif intent == "browser.navigate":
+            url = arguments.get("url", "halaman itu")
+            return f"Siap, aku buka {url}."
+
+        elif intent == "browser.search":
+            url = arguments.get("url", "")
+            return "Siap, aku cari di Google." if "google.com/search" in url else "Siap, aku buka pencarian."
+
+        elif intent == "web.search":
+            query = arguments.get("query", "")
+            return f"Siap, aku cari {query}." if query else "Siap, aku cari."
+
+        elif intent == "notes.open":
+            return "Siap, aku buka Notes."
+
+        elif intent == "notes.take":
+            return "Siap, aku catat."
+
+        elif intent == "memory.remember":
+            return "Siap, aku ingat."
 
         return result
 
@@ -808,6 +859,7 @@ class Orchestrator:
                     self._latency_mark("tts_first_audio", bytes=len(audio))
                     self._output_audio_bytes = audio
                     if self._play is not None:
+                        self.state_machine.playback_started()
                         self._latency_mark("playback_start")
                         await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
                         self._latency_mark("playback_done", interrupted=stop_event.is_set())
@@ -822,7 +874,7 @@ class Orchestrator:
 
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "completed", {})
-        if self.state_machine.state is State.SPEAKING:
+        if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
             self.state_machine.audio_done()
 
         tts_duration = time.time() - start_tts
@@ -848,7 +900,7 @@ class Orchestrator:
                 self._play(audio)
 
     def request_barge_in(self) -> bool:
-        if self.state_machine.state is not State.SPEAKING and self._playback_stop_event is None:
+        if self.state_machine.state not in (State.PREPARING_AUDIO, State.SPEAKING) and self._playback_stop_event is None:
             return False
 
         self._latency_mark("barge_in_detected")
@@ -874,7 +926,7 @@ class Orchestrator:
         if self.on_pipeline_event:
             self.on_pipeline_event("tts", "interrupted", {})
 
-        if self.state_machine.state is State.SPEAKING:
+        if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
             self.state_machine.audio_done()
 
         if self.state_machine.state is State.IDLE and self.recorder is not None:
@@ -929,12 +981,12 @@ class Orchestrator:
             self._last_speech_time = now
 
         if self._speech_detected:
-            if now - self._last_speech_time >= 1.5:
+            if now - self._last_speech_time >= self.config.vad.end_silence_ms / 1000:
                 self._auto_listening = False
                 if self._loop:
                     asyncio.run_coroutine_threadsafe(self._auto_respond(), self._loop)
         else:
-            if now - self._auto_listen_start_real_time >= 5.0:
+            if now - self._auto_listen_start_real_time >= self.config.vad.followup_timeout_s:
                 self._auto_listening = False
                 if self._loop:
                     asyncio.run_coroutine_threadsafe(self._auto_timeout(), self._loop)
@@ -1262,7 +1314,7 @@ class Orchestrator:
                 pass
         
         # Only force IDLE if we are actively listening (or in an error state).
-        # If the backend is currently THINKING or SPEAKING, let the turn complete naturally
+        # If the backend is currently THINKING/PREPARING_AUDIO/SPEAKING, let the turn complete naturally
         # so that window blur (e.g. from launching a browser) does not abort the response.
         if self.state_machine.state in (State.LISTENING, State.ERROR):
             self.state_machine.force_idle()

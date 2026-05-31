@@ -1,7 +1,7 @@
 import datetime
 import subprocess
 
-from verse.tools.builtin import calendar, contacts, messages, osa, reminders
+from verse.tools.builtin import calendar, contacts, messages, osa, reminders, system
 
 
 def _patch_osa(monkeypatch, stdout=""):
@@ -101,3 +101,12 @@ def test_send_message_unknown_recipient(monkeypatch):
 
 def test_send_message_requires_text():
     assert "empty" in messages.send_message("555-123-4567", "").lower()
+
+
+def test_close_app_builds_quit_script(monkeypatch):
+    scripts = _patch_osa(monkeypatch)
+
+    result = system.close_app("chrome")
+
+    assert 'tell application "Google Chrome" to quit' in scripts[-1]
+    assert result == "Closed Google Chrome."

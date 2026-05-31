@@ -156,6 +156,21 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             },
             handler=system.open_app,
         ),
+        "close_app": Tool(
+            name="close_app",
+            description="Quit a macOS application by name, e.g. 'Safari', 'Notes'.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "app_name": {
+                        "type": "string",
+                        "description": "The application name to quit.",
+                    }
+                },
+                "required": ["app_name"],
+            },
+            handler=system.close_app,
+        ),
         "get_time": Tool(
             name="get_time",
             description="Get the current local date and time.",

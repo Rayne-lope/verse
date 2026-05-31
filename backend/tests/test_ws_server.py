@@ -261,17 +261,22 @@ def test_all_state_transitions_are_broadcasted():
     msg = server._queue.get_nowait()
     assert msg == {"type": "state_change", "state": "thinking"}
 
-    # 3. thinking -> speaking
+    # 3. thinking -> preparing audio
     machine.transition(StateTrigger.TTS_READY)
+    msg = server._queue.get_nowait()
+    assert msg == {"type": "state_change", "state": "preparing_audio"}
+
+    # 4. preparing audio -> speaking
+    machine.transition(StateTrigger.PLAYBACK_START)
     msg = server._queue.get_nowait()
     assert msg == {"type": "state_change", "state": "speaking"}
 
-    # 4. speaking -> idle
+    # 5. speaking -> idle
     machine.transition(StateTrigger.AUDIO_DONE)
     msg = server._queue.get_nowait()
     assert msg == {"type": "state_change", "state": "idle"}
 
-    # 5. idle -> error
+    # 6. idle -> error
     machine.transition(StateTrigger.ERROR, metadata={"message": "test error"})
     msg1 = server._queue.get_nowait()
     assert msg1 == {"type": "state_change", "state": "error"}

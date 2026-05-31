@@ -196,8 +196,8 @@ class GeminiLiveEngine:
         if self._player:
             await self._player.clear()
 
-        if self._state_machine.state is State.SPEAKING:
-            self._state_machine.audio_done()   # SPEAKING → IDLE
+        if self._state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+            self._state_machine.audio_done()
 
         # Ask Gemini to stop its current output
         if self._session:
@@ -306,7 +306,8 @@ class GeminiLiveEngine:
                         if not self._speaking_started:
                             self._speaking_started = True
                             try:
-                                self._state_machine.tts_ready()   # THINKING → SPEAKING
+                                self._state_machine.tts_ready()
+                                self._state_machine.playback_started()
                             except Exception:
                                 pass
                             self._emit("gemini", "speaking_start", {})

@@ -305,7 +305,7 @@ def main() -> None:
     def on_pressed() -> None:
         from verse.state import State
 
-        if engine.state_machine.state is State.SPEAKING and hasattr(engine, "request_barge_in"):
+        if engine.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING) and hasattr(engine, "request_barge_in"):
             print("Interrupting...")
             engine.request_barge_in()
             return

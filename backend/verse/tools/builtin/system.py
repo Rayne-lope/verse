@@ -27,6 +27,32 @@ def open_app(app_name: str) -> str:
     return f"Opened {actual_name}."
 
 
+def close_app(app_name: str) -> str:
+    name = app_name.strip()
+    if not name:
+        raise ValueError("app_name cannot be empty")
+
+    aliases = {
+        "brave": "Brave Browser",
+        "brave browser": "Brave Browser",
+        "chrome": "Google Chrome",
+        "google chrome": "Google Chrome",
+        "safari": "Safari",
+        "vscode": "Visual Studio Code",
+        "vs code": "Visual Studio Code",
+        "visual studio code": "Visual Studio Code",
+        "code": "Visual Studio Code",
+        "spotify": "Spotify",
+        "notes": "Notes",
+        "note": "Notes",
+    }
+
+    actual_name = aliases.get(name.lower(), name)
+    from verse.tools.builtin.osa import osa_quote, run_applescript
+    run_applescript(f'tell application "{osa_quote(actual_name)}" to quit')
+    return f"Closed {actual_name}."
+
+
 def get_time() -> str:
     now = datetime.now().astimezone()
     return now.strftime("It is %A, %d %B %Y, %H:%M.")

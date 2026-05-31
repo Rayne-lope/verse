@@ -14,7 +14,7 @@ model = "deepseek-v4-flash-free"
 base_url = "https://opencode.ai/zen/v1"
 # API key disimpan via env DEEPSEEK_API_KEY atau Keychain: set_api_key("deepseek", "sk-...")
 temperature = 0.7
-max_history = 10
+max_history = 4
 
 [tts]
 provider = "elevenlabs"
@@ -22,8 +22,21 @@ voice_id = ""
 speed = 1.0
 
 [tools]
-enabled = ["play_music", "pause_music", "open_app", "web_search", "open_url"]
+enabled = ["play_music", "pause_music", "open_app", "close_app", "web_search", "open_url"]
 spotify_client_id = ""
+
+[vad]
+speech_start_ms = 100
+min_utterance_ms = 350
+end_silence_ms = 700
+pre_roll_ms = 250
+followup_timeout_s = 3.0
+
+[voice]
+max_tool_iterations = 2
+
+[memory]
+inject_facts = 6
 
 [always_on]
 enabled = false

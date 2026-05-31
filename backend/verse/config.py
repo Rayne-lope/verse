@@ -30,7 +30,7 @@ class LLMConfig:
     model: str = "deepseek-chat"
     base_url: str = "https://api.deepseek.com"
     temperature: float = 0.7
-    max_history: int = 10
+    max_history: int = 4
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,7 @@ class ToolsConfig:
             "play_music",
             "pause_music",
             "open_app",
+            "close_app",
             "web_search",
             "open_url",
             "get_weather",
@@ -95,12 +96,12 @@ class VADConfig:
     rms_fallback_enabled: bool = True
     rms_start_level: float = 0.03
     rms_end_level: float = 0.02
-    speech_start_ms: int = 160
-    min_utterance_ms: int = 500
-    end_silence_ms: int = 1400
+    speech_start_ms: int = 100
+    min_utterance_ms: int = 350
+    end_silence_ms: int = 700
     max_utterance_ms: int = 20000
-    pre_roll_ms: int = 300
-    followup_timeout_s: float = 5.0
+    pre_roll_ms: int = 250
+    followup_timeout_s: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ class GeminiLiveConfig:
 @dataclass(frozen=True)
 class VoiceConfig:
     engine: str = "classic_pipeline"  # "classic_pipeline" | "gemini_live"
+    max_tool_iterations: int = 2
     gemini_live: GeminiLiveConfig = field(default_factory=GeminiLiveConfig)
 
 
@@ -136,7 +138,7 @@ class MemoryConfig:
     enabled: bool = True       # master switch for all memory (history + long-term)
     extract: bool = True       # run async long-term fact extraction after each turn
     max_facts: int = 50        # cap on stored durable facts (pruned beyond this)
-    inject_facts: int = 18     # how many facts to inject into the system prompt
+    inject_facts: int = 6      # how many facts to inject into the system prompt
 
 
 @dataclass(frozen=True)
@@ -372,6 +374,9 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
         ),
         voice=VoiceConfig(
             engine=str(voice_raw.get("engine", VoiceConfig.engine)),
+            max_tool_iterations=int(
+                voice_raw.get("max_tool_iterations", VoiceConfig.max_tool_iterations)
+            ),
             gemini_live=GeminiLiveConfig(
                 model=str(gl_raw.get("model", GeminiLiveConfig.model)),
                 voice_name=str(gl_raw.get("voice_name", GeminiLiveConfig.voice_name)),
