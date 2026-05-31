@@ -7,8 +7,23 @@ import { getNotchGeometry, type NotchGeometry } from "../utils/window";
  * plug/unplug (the user can drag the Verse window to another monitor and we
  * want fresh dimensions).
  */
+const isMac = typeof window !== "undefined" && navigator.userAgent.includes("Mac");
+
+const DEFAULT_MAC_NOTCH: NotchGeometry = {
+  hasNotch: true,
+  x: 0,
+  y: 0,
+  width: 190,
+  height: 32,
+  screenWidth: 1440,
+  screenHeight: 900,
+  menuBarHeight: 24,
+};
+
 export function useNotchGeometry(): NotchGeometry | null {
-  const [notch, setNotch] = useState<NotchGeometry | null>(null);
+  const [notch, setNotch] = useState<NotchGeometry | null>(() => {
+    return isMac ? DEFAULT_MAC_NOTCH : null;
+  });
 
   useEffect(() => {
     let cancelled = false;

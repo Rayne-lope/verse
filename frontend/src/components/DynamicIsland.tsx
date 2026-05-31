@@ -42,7 +42,10 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
   }, []);
 
   const notch = useNotchGeometry();
-  const hasNotch = Boolean(notch);
+  const isMac = useMemo(() => {
+    return typeof window !== "undefined" && navigator.userAgent.includes("Mac");
+  }, []);
+  const hasNotch = Boolean(notch) || isMac;
   const notchHeight = hasNotch ? (notch?.height && notch.height > 0 ? notch.height : 32) : 0;
   const shellSizes = useMemo(() => getShellSizes(notch, calibration), [notch, calibration]);
   const shellSize = shellSizes[mode];

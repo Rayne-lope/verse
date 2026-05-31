@@ -47,7 +47,7 @@
   pointer-events: auto;
   box-sizing: border-box;
   padding-top: var(--notch-height, 0px);
-  --shell-bg: oklch(0% 0 0 / 0.96);
+  --shell-bg: #000000;
   background: var(--shell-bg);
   color: oklch(96% 0.01 var(--island-hue));
   border: 1px solid oklch(100% 0 0 / 0.06);
@@ -79,6 +79,13 @@
   cursor: default;
   align-items: stretch;
   justify-content: flex-start;
+  --shell-bg: oklch(0% 0 0 / 0.96);
+  background: var(--shell-bg);
+  border: 1px solid oklch(100% 0 0 / 0.06);
+  box-shadow:
+    0 8px 24px oklch(0% 0 0 / 0.45),
+    0 2px 6px oklch(0% 0 0 / 0.35),
+    inset 0 1px 0 oklch(100% 0 0 / 0.05);
 }
 
 /* Compact & active modes under a hardware notch = visual extension of the notch.
