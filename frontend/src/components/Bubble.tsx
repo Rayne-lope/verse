@@ -21,7 +21,7 @@ export function Bubble({ onOpenSettings }: BubbleProps) {
 
   const orbRef = useRef<HTMLDivElement>(null);
   const activationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const active = state === "listening" || state === "speaking";
+  const active = state === "listening" || state === "preparing_audio" || state === "speaking";
   const canToggleConversation = connectionStatus === "open";
   useAudioReactiveOrb(orbRef, audioLevel, active);
   useMouseGaze(orbRef, state);

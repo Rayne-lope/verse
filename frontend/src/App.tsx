@@ -7,7 +7,7 @@ import { OnboardingFlow } from "./components/OnboardingFlow";
 import { resizeWindow, setFullscreen, lockWidgetMode } from "./utils/window";
 import "./App.css";
 
-const WIDGET_W = 600;
+const WIDGET_W = 480;
 const WIDGET_H = 280;
 const SETTINGS_W = 480;
 const SETTINGS_H = 560;

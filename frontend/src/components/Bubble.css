@@ -77,6 +77,11 @@
   --orb-chroma: 0.18;
   --orb-shimmer-speed: 5s;
 }
+.orb[data-state="preparing_audio"] {
+  --orb-hue: 300;   /* violet, preparing audio */
+  --orb-chroma: 0.18;
+  --orb-shimmer-speed: 4s;
+}
 .orb[data-state="speaking"] {
   --orb-hue: 350;   /* warm pink, expressive */
   --orb-chroma: 0.19;
@@ -95,7 +100,8 @@
   animation: orb-aura-bloom 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 /* thinking: a small specular point orbits → reads as "working". */
-.orb[data-state="thinking"] .orb__highlight {
+.orb[data-state="thinking"] .orb__highlight,
+.orb[data-state="preparing_audio"] .orb__highlight {
   animation: orb-think-orbit 3.2s linear infinite;
 }
 /* speaking: subtle shape wobble layered on top of the audio-reactive scale. */
@@ -302,7 +308,8 @@
   height: 13px;
   border-radius: 6px 6px 8px 8px;
 }
-.orb[data-state="thinking"] .eyes {
+.orb[data-state="thinking"] .eyes,
+.orb[data-state="preparing_audio"] .eyes {
   animation: eye-think 2.2s ease-in-out infinite;
 }
 .orb[data-state="error"] .eyes {
@@ -568,10 +575,12 @@
   .eyes,
   .orb[data-state="error"],
   .orb[data-state="thinking"] .eyes,
+  .orb[data-state="preparing_audio"] .eyes,
   .orb[data-state="listening"] .orb__aura,
   .orb[data-state="idle"][data-activation="listening"],
   .orb[data-state="idle"][data-activation="listening"] .orb__aura,
   .orb[data-state="thinking"] .orb__highlight,
+  .orb[data-state="preparing_audio"] .orb__highlight,
   .orb[data-state="speaking"] .orb__body {
     animation: none;
   }

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useIslandMode } from "../hooks/useIslandMode";
-import { ISLAND_SPRING, SHELL_SIZES } from "./island-modes/motion";
+import { useNotchGeometry } from "../hooks/useNotchGeometry";
+import { ISLAND_SPRING, getShellSizes } from "./island-modes/motion";
 import { CompactMode } from "./island-modes/CompactMode";
 import { ListeningMode } from "./island-modes/ListeningMode";
 import { SpeakingMode } from "./island-modes/SpeakingMode";
@@ -29,7 +30,9 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
     optimisticListening,
   });
 
-  const shellSize = SHELL_SIZES[mode];
+  const notch = useNotchGeometry();
+  const shellSizes = useMemo(() => getShellSizes(notch), [notch]);
+  const shellSize = shellSizes[mode];
 
   // Clear optimistic flag once backend confirms a non-idle state
   useEffect(() => {
@@ -141,6 +144,7 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
                 transcript={assistantText || transcript}
                 audioLevel={audioLevel}
                 thinking={state === "thinking"}
+                preparing={state === "preparing_audio"}
               />
             )}
             {mode === "expanded" && (

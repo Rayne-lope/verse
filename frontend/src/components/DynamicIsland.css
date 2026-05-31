@@ -23,7 +23,7 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding-top: 8px;
+  padding-top: 0; /* flush with top — pill sits AT the notch, becoming its visual extension */
   pointer-events: none;
   z-index: 10;
   background: transparent;
@@ -36,6 +36,7 @@
 .island-stage[data-state="idle"]     { --island-hue: 255; --island-chroma: 0.09; }
 .island-stage[data-state="listening"]{ --island-hue: 195; --island-chroma: 0.17; }
 .island-stage[data-state="thinking"] { --island-hue: 300; --island-chroma: 0.18; }
+.island-stage[data-state="preparing_audio"] { --island-hue: 300; --island-chroma: 0.18; }
 .island-stage[data-state="speaking"] { --island-hue: 350; --island-chroma: 0.19; }
 .island-stage[data-state="error"]    { --island-hue: 25;  --island-chroma: 0.20; }
 
@@ -74,6 +75,14 @@
   cursor: default;
   align-items: stretch;
   justify-content: flex-start;
+}
+
+/* Compact mode = visual extension of the notch. Remove border/shadow so
+   the pill blends seamlessly with the black notch surface. */
+.island-shell[data-mode="compact"] {
+  background: #000;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 /* Audio-reactive glow halo behind the shell (sits inside, no layout impact) */
@@ -122,6 +131,7 @@
 }
 
 .island-status-dot[data-state="listening"],
+.island-status-dot[data-state="preparing_audio"],
 .island-status-dot[data-state="speaking"] {
   animation: island-dot-active 1.2s ease-in-out infinite;
 }

@@ -46,6 +46,10 @@ body,
   --glow-hue: 300;
   --glow-chroma: 0.18;
 }
+.shell-surface[data-state="preparing_audio"] {
+  --glow-hue: 300;
+  --glow-chroma: 0.18;
+}
 .shell-surface[data-state="speaking"] {
   --glow-hue: 350;
   --glow-chroma: 0.19;
@@ -388,4 +392,3 @@ body,
 .assistant-line .subtitle-text {
   color: oklch(95% 0.01 250);
 }
-

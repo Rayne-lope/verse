@@ -14,16 +14,60 @@ export const CONTENT_FADE: Transition = {
   ease: [0.32, 0.72, 0, 1],
 };
 
-/** Shell dimensions per mode. Border-radius is always half of height for pill modes. */
-export const SHELL_SIZES = {
-  compact:   { width: 140, height: 34,  borderRadius: 17 },
-  listening: { width: 280, height: 38,  borderRadius: 19 },
-  speaking:  { width: 380, height: 46,  borderRadius: 23 },
-  expanded:  { width: 380, height: 210, borderRadius: 28 },
-  error:     { width: 240, height: 38,  borderRadius: 19 },
-} as const;
+export type IslandKind = "compact" | "listening" | "speaking" | "expanded" | "error";
 
-export type IslandKind = keyof typeof SHELL_SIZES;
+export interface ShellSize {
+  width: number;
+  height: number;
+  borderRadius: number;
+}
+
+export type ShellSizes = Record<IslandKind, ShellSize>;
+
+interface NotchHint {
+  hasNotch: boolean;
+  width: number;
+  height: number;
+}
+
+/** Compute mode shell sizes. When a notch is present, compact mode matches the
+ *  notch dimensions exactly so the pill visually merges with the hardware notch.
+ *  Active modes grow outward symmetrically from that anchor. */
+export function getShellSizes(notch: NotchHint | null): ShellSizes {
+  const compactW = notch?.hasNotch ? notch.width : 140;
+  const compactH = notch?.hasNotch ? notch.height : 34;
+
+  return {
+    compact: {
+      width: compactW,
+      height: compactH,
+      borderRadius: compactH / 2,
+    },
+    listening: {
+      width: Math.max(280, compactW + 100),
+      height: compactH + 4,
+      borderRadius: (compactH + 4) / 2,
+    },
+    speaking: {
+      width: Math.max(380, compactW + 200),
+      height: compactH + 12,
+      borderRadius: (compactH + 12) / 2,
+    },
+    expanded: {
+      width: 380,
+      height: 210,
+      borderRadius: 28,
+    },
+    error: {
+      width: Math.max(240, compactW + 70),
+      height: compactH + 4,
+      borderRadius: (compactH + 4) / 2,
+    },
+  };
+}
+
+/** Default sizes (no notch) — kept for components that don't have access to notch context. */
+export const SHELL_SIZES: ShellSizes = getShellSizes(null);
 
 /** Content swap variants — fades out fast, swaps, fades in scaled. */
 export const contentVariants: Variants = {

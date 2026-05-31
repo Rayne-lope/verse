@@ -32,6 +32,7 @@ function ExpandedInner({
   const statusLabel =
     state === "listening" ? "Listening" :
     state === "thinking" ? "Thinking…" :
+    state === "preparing_audio" ? "Preparing audio…" :
     state === "speaking" ? "Speaking" :
     state === "error" ? "Error" :
     "Verse";

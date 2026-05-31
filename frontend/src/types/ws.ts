@@ -2,6 +2,7 @@ export type VerseState =
   | "idle"
   | "listening"
   | "thinking"
+  | "preparing_audio"
   | "speaking"
   | "error";
 

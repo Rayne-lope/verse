@@ -8,15 +8,17 @@ interface SpeakingProps {
   audioLevel: number;
   /** When true, render thinking pulse instead of speaker (state was 'thinking'). */
   thinking?: boolean;
+  /** TTS has started, but playback has not produced audio yet. */
+  preparing?: boolean;
 }
 
-function SpeakingInner({ transcript, audioLevel, thinking = false }: SpeakingProps) {
-  const text = transcript || (thinking ? "Thinking…" : "Speaking…");
+function SpeakingInner({ transcript, audioLevel, thinking = false, preparing = false }: SpeakingProps) {
+  const text = transcript || (thinking ? "Thinking…" : preparing ? "Preparing audio…" : "Speaking…");
   return (
     <motion.div
       key="speaking-content"
       className="island-content island-content--speaking"
-      data-thinking={thinking || undefined}
+      data-thinking={thinking || preparing || undefined}
       variants={contentVariants}
       initial="enter"
       animate="center"

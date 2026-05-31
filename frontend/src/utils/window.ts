@@ -1,5 +1,74 @@
+export interface NotchGeometry {
+  hasNotch: boolean;
+  /** Notch left-edge X in logical points relative to the screen origin. */
+  x: number;
+  /** Notch top-edge Y (always 0). */
+  y: number;
+  /** Notch width in logical points (~190 on 14"/16" M-series). */
+  width: number;
+  /** Notch height (= safeAreaInsets.top, ~32). */
+  height: number;
+  /** Full screen width in logical points. */
+  screenWidth: number;
+  /** Full screen height in logical points. */
+  screenHeight: number;
+  /** Menu bar height in logical points (used for fallback positioning). */
+  menuBarHeight: number;
+}
+
+/** Query the macOS notch geometry. Returns null on non-macOS or if query fails. */
+export async function getNotchGeometry(): Promise<NotchGeometry | null> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return await invoke<NotchGeometry>("get_notch_geometry");
+  } catch {
+    return null;
+  }
+}
+
+/** Elevate the Tauri window above the menu bar (NSStatusWindowLevel = 25). */
+export async function elevateAboveMenuBar(): Promise<void> {
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("elevate_above_menu_bar");
+  } catch {
+    // non-macOS or command not registered — ignore
+  }
+}
+
+/** Position the Tauri window so its horizontal center aligns with the notch center.
+ *  Returns the notch geometry on success (used by callers to size the pill). */
+export async function positionAtNotch(containerWidth: number): Promise<NotchGeometry | null> {
+  const notch = await getNotchGeometry();
+  if (!notch) {
+    await positionTopCenter(containerWidth);
+    return null;
+  }
+
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const { LogicalPosition } = await import("@tauri-apps/api/dpi");
+    const win = getCurrentWindow();
+
+    if (notch.hasNotch) {
+      const notchCenterX = notch.x + notch.width / 2;
+      const x = notchCenterX - containerWidth / 2;
+      const y = 0; // flush with screen top — pill anchored to top of container
+      await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
+    } else {
+      // No notch on this display — center horizontally just below menu bar
+      const x = (notch.screenWidth - containerWidth) / 2;
+      await win.setPosition(new LogicalPosition(Math.round(x), 0));
+    }
+  } catch {
+    // ignore
+  }
+
+  return notch;
+}
+
 /** Called on startup in widget mode to lock the window to island container size. */
-export async function lockWidgetMode(width: number, height: number): Promise<void> {
+export async function lockWidgetMode(width: number, height: number): Promise<NotchGeometry | null> {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const { LogicalSize } = await import("@tauri-apps/api/dpi");
@@ -8,9 +77,10 @@ export async function lockWidgetMode(width: number, height: number): Promise<voi
     await win.setAlwaysOnTop(true);
     await win.setVisibleOnAllWorkspaces(true);
     await win.setSize(new LogicalSize(width, height));
-    await positionTopCenter(width);
+    await elevateAboveMenuBar();
+    return await positionAtNotch(width);
   } catch {
-    // browser preview or non-Tauri env — ignore
+    return null;
   }
 }
 
@@ -24,7 +94,7 @@ export async function resizeWindow(width: number, height: number): Promise<void>
   }
 }
 
-export async function setFullscreen(fullscreen: boolean, widgetWidth: number = 600, widgetHeight: number = 280): Promise<void> {
+export async function setFullscreen(fullscreen: boolean, widgetWidth: number = 480, widgetHeight: number = 280): Promise<void> {
   try {
     const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
     const { PhysicalSize, PhysicalPosition, LogicalSize } = await import("@tauri-apps/api/dpi");
@@ -46,7 +116,8 @@ export async function setFullscreen(fullscreen: boolean, widgetWidth: number = 6
       }
     } else {
       await win.setSize(new LogicalSize(widgetWidth, widgetHeight));
-      await positionTopCenter(widgetWidth);
+      await elevateAboveMenuBar();
+      await positionAtNotch(widgetWidth);
       // Lock back to widget behaviour
       await win.setResizable(false);
       await win.setAlwaysOnTop(true);
@@ -57,7 +128,7 @@ export async function setFullscreen(fullscreen: boolean, widgetWidth: number = 6
   }
 }
 
-/** Position the window at the top-center of the active monitor (Dynamic Island style).
+/** Position the window at the top-center of the active monitor (fallback for non-notch).
  *  Uses logical units throughout to avoid Retina/scale-factor mismatches. */
 export async function positionTopCenter(widthLogical: number): Promise<void> {
   try {
@@ -68,39 +139,14 @@ export async function positionTopCenter(widthLogical: number): Promise<void> {
     if (!monitor) return;
 
     const scale = monitor.scaleFactor || 1;
-    // monitor.size and monitor.position are PHYSICAL; convert to logical for setPosition
     const monitorLogicalW = monitor.size.width / scale;
     const monitorLogicalX = monitor.position.x / scale;
     const monitorLogicalY = monitor.position.y / scale;
 
     const x = monitorLogicalX + (monitorLogicalW - widthLogical) / 2;
-    const y = monitorLogicalY; // flush with top of screen
+    const y = monitorLogicalY;
 
     await win.setPosition(new LogicalPosition(Math.round(x), Math.round(y)));
-  } catch {
-    // browser preview or non-Tauri env — ignore
-  }
-}
-
-/** Legacy — kept for backwards compatibility if any caller still references it. */
-export async function positionTopRight(width: number): Promise<void> {
-  try {
-    const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
-    const { PhysicalPosition } = await import("@tauri-apps/api/dpi");
-    const win = getCurrentWindow();
-    const monitor = await currentMonitor();
-    if (monitor) {
-      const scaleFactor = monitor.scaleFactor;
-      const monitorWidth = monitor.size.width;
-      const monitorX = monitor.position.x;
-      const monitorY = monitor.position.y;
-
-      const margin = 24 * scaleFactor;
-      const x = monitorX + monitorWidth - (width * scaleFactor) - margin;
-      const y = monitorY + margin;
-
-      await win.setPosition(new PhysicalPosition(Math.max(monitorX, Math.round(x)), Math.round(y)));
-    }
   } catch {
     // browser preview or non-Tauri env — ignore
   }

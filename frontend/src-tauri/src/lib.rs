@@ -1,5 +1,8 @@
 use tauri::{AppHandle, Listener, Manager, PhysicalPosition, WebviewWindow};
 
+#[cfg(target_os = "macos")]
+mod macos_notch;
+
 const MAIN_WINDOW_LABEL: &str = "main";
 const WINDOW_MARGIN: i32 = 24;
 
@@ -38,7 +41,23 @@ pub fn run() {
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
                 configure_floating_window(&window)?;
-                position_top_right(&window)?;
+                // Don't force position_top_right here — JS will call positionAtNotch()
+                // on mount with proper notch geometry. Falls back gracefully if not macOS.
+
+                #[cfg(target_os = "macos")]
+                {
+                    // Re-elevate above menu bar on focus events to work around tauri#5566
+                    // where setLevel sometimes resets after fullscreen transitions.
+                    let elevate_handle = app_handle.clone();
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::Focused(true) = event {
+                            let h = elevate_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = macos_notch::elevate_above_menu_bar(h).await;
+                            });
+                        }
+                    });
+                }
             }
 
             let show_handle = app_handle.clone();
@@ -57,11 +76,26 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            show_verse_window,
-            hide_verse_window,
-            toggle_verse_window
-        ])
+        .invoke_handler({
+            #[cfg(target_os = "macos")]
+            {
+                tauri::generate_handler![
+                    show_verse_window,
+                    hide_verse_window,
+                    toggle_verse_window,
+                    macos_notch::get_notch_geometry,
+                    macos_notch::elevate_above_menu_bar,
+                ]
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                tauri::generate_handler![
+                    show_verse_window,
+                    hide_verse_window,
+                    toggle_verse_window,
+                ]
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

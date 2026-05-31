@@ -25,7 +25,7 @@ export interface UseIslandModeResult {
  *   error          → "error"
  *   expanded by user → "expanded"
  *   listening       → "listening"
- *   speaking/thinking → "speaking"
+ *   speaking/thinking/preparing_audio → "speaking"
  *   idle/null       → "compact"
  *
  * Expanded auto-collapses after EXPANDED_AUTO_COLLAPSE_MS unless poked.
@@ -73,7 +73,7 @@ export function useIslandMode({ state, optimisticListening = false }: UseIslandM
     mode = "expanded";
   } else if (state === "listening" || optimisticListening) {
     mode = "listening";
-  } else if (state === "speaking" || state === "thinking") {
+  } else if (state === "speaking" || state === "thinking" || state === "preparing_audio") {
     mode = "speaking";
   } else {
     mode = "compact";
