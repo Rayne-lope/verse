@@ -44,17 +44,34 @@ def fast_intent_classifier(transcript: str) -> tuple[IntentCategory, float, bool
     if any(k in normalized for k in music_keywords):
         return IntentCategory.MUSIC, 0.92, False
 
+    # Web-content actions take precedence over plain app launch. Phrases like
+    # "buka wikipedia dan rangkum" or "buka brave dan cari mobil listrik" combine
+    # an app verb with a web action — they must route to BROWSER (read/search/click
+    # the page), not APP (which only exposes open_app/close_app to the LLM).
+    web_action_keywords = (
+        "cari", "search", "rangkum", "summarize", "ringkas", "baca", "read",
+        "informasi", "info tentang", "berita", "fakta", "wikipedia", "wiki",
+        "artikel", "klik", "click", "scroll", "isi form", "ketik di", "halaman",
+    )
+    # Guard: do not treat notes/calendar/reminder phrasing as a web action, so
+    # "baca catatan" stays NOTES and "cari acara di kalender" stays CALENDAR.
+    non_web_context = any(k in normalized for k in (
+        "catat", "catatan", "note", "kalender", "calendar", "jadwal", "acara",
+        "agenda", "reminder", "pengingat", "ingatkan",
+    ))
+    has_web_action = (not non_web_context) and any(k in normalized for k in web_action_keywords)
+
     # 3. Check for APP intents (avoiding browser navigation)
     app_keywords = ("open app", "buka aplikasi", "buka", "launch", "close app", "tutup aplikasi", "tutup")
     app_names = ("spotify", "vs code", "vscode", "visual studio code", "code", "brave", "chrome", "safari", "notes", "calendar", "reminders", "mail")
-    if any(k in normalized for k in app_keywords) or any(app in normalized for app in app_names):
+    if not has_web_action and (any(k in normalized for k in app_keywords) or any(app in normalized for app in app_names)):
         if not any(w in normalized for w in ("website", "http", "www", "url", "com", "org", "net", "id")):
             if any(action in normalized for action in ("buka", "tutup", "open", "close", "launch", "quit", "exit")):
                 return IntentCategory.APP, 0.95, False
 
     # 4. Check for BROWSER / WEB SEARCH intents
     browser_keywords = ("google", "website", "navigate", "url", "cari di web", "search web", "browse", "kunjungi", "pergi ke")
-    if any(k in normalized for k in browser_keywords) or any(tld in normalized.split() for tld in ("com", "org", "net", "id")):
+    if has_web_action or any(k in normalized for k in browser_keywords) or any(tld in normalized.split() for tld in ("com", "org", "net", "id")):
         return IntentCategory.BROWSER, 0.90, False
 
     # 5. Check for CALENDAR intents

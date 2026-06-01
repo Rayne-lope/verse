@@ -177,6 +177,29 @@ class TestLiveRealtimeEngine:
         
         engine.on_transcript.assert_called_once_with("Gemini speaking", True)
 
+    async def test_live_engine_callback_fires_when_queue_full(self) -> None:
+        """Regression: the production delivery path (callbacks) must fire even when
+        the secondary events() queue is saturated with critical events."""
+        config = AppConfig()
+        registry = MagicMock(spec=ToolRegistry)
+        state_machine = StateMachine()
+
+        engine = LiveRealtimeEngine(config, registry, state_machine)
+        engine._loop = asyncio.get_running_loop()
+        engine.on_assistant_text = MagicMock()
+
+        # Saturate the queue with non-transient (critical) events so the old code
+        # path would have early-returned before dispatching the callback.
+        for i in range(300):
+            engine._enqueue_event("assistant_text", {"text": f"fill-{i}"})
+
+        engine.on_assistant_text.reset_mock()
+        engine._enqueue_event("assistant_text", {"text": "must reach UI"})
+
+        # Callback delivered despite the full queue; queue stays bounded.
+        engine.on_assistant_text.assert_called_once_with("must reach UI")
+        assert engine._event_queue.qsize() <= 256
+
     async def test_live_engine_clear_queue(self) -> None:
         config = AppConfig()
         registry = MagicMock(spec=ToolRegistry)

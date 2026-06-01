@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, TypeVar
 from playwright.sync_api import sync_playwright, BrowserContext, Page, Playwright
 
 _playwright: Playwright | None = None
 _context: BrowserContext | None = None
 _page: Page | None = None
+
+# Playwright's sync API binds its objects to the thread that created them. The
+# orchestrator runs tools via asyncio.to_thread(), whose default pool may schedule
+# successive calls on DIFFERENT threads — using a page created on thread A from
+# thread B raises "object used from a different thread". Pinning every browser call
+# to a single dedicated worker thread guarantees thread affinity across a multi-step
+# session (navigate -> inspect -> click -> ...).
+_browser_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="verse-browser")
+
+_T = TypeVar("_T")
+
+
+def _run_on_browser_thread(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Execute a browser operation on the single dedicated Playwright thread."""
+    return _browser_executor.submit(fn, *args, **kwargs).result()
 
 
 def _find_brave_executable() -> str:
@@ -54,7 +70,7 @@ def _ensure_browser() -> Page:
     return _page
 
 
-def browser_navigate(url: str) -> str:
+def _browser_navigate_impl(url: str) -> str:
     """Navigate to a URL and return the cleaned textual contents of the page."""
     try:
         page = _ensure_browser()
@@ -62,8 +78,8 @@ def browser_navigate(url: str) -> str:
         if "://" not in target:
             target = f"https://{target}"
 
-        page.goto(target, wait_until="domcontentloaded")
-        page.wait_for_timeout(3000)  # Wait for SPA/dynamic content to load
+        page.goto(target, wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(1500)  # Brief settle for SPA/dynamic content
 
         # Clean non-text tags and return page body
         content = page.evaluate("""() => {
@@ -82,7 +98,7 @@ def browser_navigate(url: str) -> str:
         return f"Failed to navigate to {url}: {exc}"
 
 
-def browser_click(selector: str) -> str:
+def _browser_click_impl(selector: str) -> str:
     """Click an element on the current page specified by selector (e.g. CSS selector, numeric ID, text, etc.)."""
     try:
         page = _ensure_browser()
@@ -96,7 +112,7 @@ def browser_click(selector: str) -> str:
         return f"Failed to click element '{selector}': {exc}"
 
 
-def browser_input(selector: str, text: str) -> str:
+def _browser_input_impl(selector: str, text: str) -> str:
     """Type text into an input field specified by selector on the current page."""
     try:
         page = _ensure_browser()
@@ -110,7 +126,7 @@ def browser_input(selector: str, text: str) -> str:
         return f"Failed to enter text into '{selector}': {exc}"
 
 
-def browser_close() -> str:
+def _browser_close_impl() -> str:
     """Close the active browser session and release all associated processes."""
     global _playwright, _context, _page
     if _context is not None:
@@ -129,7 +145,7 @@ def browser_close() -> str:
     return "Browser session closed successfully."
 
 
-def browser_inspect() -> str:
+def _browser_inspect_impl() -> str:
     """Inspect the current page, assign numeric IDs to all visible interactive elements,
     render visual badges on the page, and return a text summary of these elements."""
     try:
@@ -245,7 +261,7 @@ def browser_inspect() -> str:
         return f"Failed to inspect page: {exc}"
 
 
-def browser_scroll(direction: str, amount: str = "window") -> str:
+def _browser_scroll_impl(direction: str, amount: str = "window") -> str:
     """Scroll the current page in the specified direction ('up', 'down', 'top', 'bottom').
     The amount can be 'window' (scrolls one window height), 'half' (scrolls half window height), or a number of pixels."""
     try:
@@ -282,7 +298,7 @@ def browser_scroll(direction: str, amount: str = "window") -> str:
         return f"Failed to scroll page: {exc}"
 
 
-def browser_go_back() -> str:
+def _browser_go_back_impl() -> str:
     """Navigate back one step in the browser's history."""
     try:
         page = _ensure_browser()
@@ -291,3 +307,36 @@ def browser_go_back() -> str:
         return "Successfully navigated back in history."
     except Exception as exc:
         return f"Failed to navigate back: {exc}"
+
+
+# ----------------------------------------------------------------------------
+# Public tool entrypoints — every call is pinned to the single browser thread so
+# Playwright's thread-bound sync objects stay valid across a multi-step session.
+# ----------------------------------------------------------------------------
+
+def browser_navigate(url: str) -> str:
+    return _run_on_browser_thread(_browser_navigate_impl, url)
+
+
+def browser_click(selector: str) -> str:
+    return _run_on_browser_thread(_browser_click_impl, selector)
+
+
+def browser_input(selector: str, text: str) -> str:
+    return _run_on_browser_thread(_browser_input_impl, selector, text)
+
+
+def browser_close() -> str:
+    return _run_on_browser_thread(_browser_close_impl)
+
+
+def browser_inspect() -> str:
+    return _run_on_browser_thread(_browser_inspect_impl)
+
+
+def browser_scroll(direction: str, amount: str = "window") -> str:
+    return _run_on_browser_thread(_browser_scroll_impl, direction, amount)
+
+
+def browser_go_back() -> str:
+    return _run_on_browser_thread(_browser_go_back_impl)

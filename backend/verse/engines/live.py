@@ -427,26 +427,11 @@ class LiveRealtimeEngine(VoiceEngine):
             cb(*args)
 
     def _enqueue_event(self, type_: str, payload: dict[str, Any]) -> None:
-        if self._event_queue.full():
-            if type_ in ("audio_level", "vad_state"):
-                return  # Drop transient high-frequency events immediately
-
-            # Try to make room by removing the oldest transient event from the queue
-            removed = False
-            for event_item in list(self._event_queue._queue):
-                if event_item.type in ("audio_level", "vad_state"):
-                    self._event_queue._queue.remove(event_item)
-                    removed = True
-                    break
-            
-            if not removed:
-                # If no transient event can be dropped, we must drop this event to avoid QueueFull crash
-                logger.error("Event queue completely full of critical events! Dropping: %s", type_)
-                return
-
         event = VoiceEvent(type=type_, payload=payload)
-        
-        # Fire standard callbacks concurrently
+
+        # Fire standard callbacks FIRST. Callbacks are the production delivery path
+        # to the WebSocket runtime; they must never be blocked or skipped because the
+        # secondary events() queue (used only by tests/optional consumers) is full.
         if type_ == "transcript":
             self._dispatch_callback(self.on_transcript, payload["text"], payload.get("partial", False))
             if payload.get("partial", False):
@@ -464,17 +449,47 @@ class LiveRealtimeEngine(VoiceEngine):
         elif type_ == "vad_state":
             self._dispatch_callback(self.on_vad_state, payload["state"], payload["probability"])
 
+        # Best-effort enqueue for the events() streaming API. When no consumer is
+        # draining (production uses callbacks, not events()), keep the queue bounded
+        # by dropping the oldest event rather than blocking or losing the newest.
+        self._put_event_best_effort(event, type_)
+
+    def _put_event_best_effort(self, event: "VoiceEvent", type_: str) -> None:
+        def _put() -> None:
+            if self._event_queue.full():
+                if type_ in ("audio_level", "vad_state"):
+                    return  # Drop transient high-frequency events immediately
+                # Prefer dropping a transient event to make room.
+                for item in list(self._event_queue._queue):
+                    if item.type in ("audio_level", "vad_state"):
+                        try:
+                            self._event_queue._queue.remove(item)
+                        except ValueError:
+                            pass
+                        break
+                else:
+                    # No transient to drop — discard the oldest event so the newest
+                    # (more relevant) event is retained.
+                    try:
+                        self._event_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+            try:
+                self._event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
         try:
             in_loop_thread = (asyncio.get_running_loop() is self._loop)
         except RuntimeError:
             in_loop_thread = False
 
         if in_loop_thread:
-            self._event_queue.put_nowait(event)
+            _put()
         elif self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._event_queue.put_nowait, event)
+            self._loop.call_soon_threadsafe(_put)
         else:
-            self._event_queue.put_nowait(event)
+            _put()
 
     def _on_playback_level(self, level: float) -> None:
         self._enqueue_event("audio_level", {"level": level})

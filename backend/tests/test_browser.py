@@ -57,7 +57,7 @@ def test_browser_navigate_success():
         args, kwargs = mock_pw_instance.chromium.launch_persistent_context.call_args
         assert kwargs["headless"] is False
         assert kwargs["executable_path"] == "/Applications/Brave.app"
-        mock_page.goto.assert_called_once_with("https://wikipedia.org", wait_until="domcontentloaded")
+        mock_page.goto.assert_called_once_with("https://wikipedia.org", wait_until="domcontentloaded", timeout=20000)
 
 
 def test_browser_navigate_truncation():

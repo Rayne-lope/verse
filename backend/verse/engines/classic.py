@@ -97,36 +97,44 @@ class ClassicPipelineEngine(VoiceEngine):
             self.orchestrator.on_user_final_transcript = handle_user_final
 
     def _enqueue_event(self, type_: str, payload: dict[str, Any]) -> None:
-        if self._event_queue.full():
-            if type_ in ("audio_level", "vad_state"):
-                return  # Drop transient high-frequency events immediately
-
-            # Try to make room by removing the oldest transient event from the queue
-            removed = False
-            for event_item in list(self._event_queue._queue):
-                if event_item.type in ("audio_level", "vad_state"):
-                    self._event_queue._queue.remove(event_item)
-                    removed = True
-                    break
-            
-            if not removed:
-                # If no transient event can be dropped, we must drop this event to avoid QueueFull crash
-                import logging
-                logging.getLogger(__name__).error("Event queue completely full of critical events! Dropping: %s", type_)
-                return
-
+        # Callbacks are dispatched separately by the handler wrappers, so this only
+        # feeds the events() streaming API. Keep it best-effort: when no consumer is
+        # draining, stay bounded by dropping the oldest event instead of spamming
+        # errors or blocking.
         event = VoiceEvent(type=type_, payload=payload)
+
+        def _put() -> None:
+            if self._event_queue.full():
+                if type_ in ("audio_level", "vad_state"):
+                    return  # Drop transient high-frequency events immediately
+                for item in list(self._event_queue._queue):
+                    if item.type in ("audio_level", "vad_state"):
+                        try:
+                            self._event_queue._queue.remove(item)
+                        except ValueError:
+                            pass
+                        break
+                else:
+                    try:
+                        self._event_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+            try:
+                self._event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+
         try:
             in_loop_thread = (asyncio.get_running_loop() is self._loop)
         except RuntimeError:
             in_loop_thread = False
 
         if in_loop_thread:
-            self._event_queue.put_nowait(event)
+            _put()
         elif self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._event_queue.put_nowait, event)
+            self._loop.call_soon_threadsafe(_put)
         else:
-            self._event_queue.put_nowait(event)
+            _put()
 
     # ------------------------------------------------------------------
     # VoiceEngine Interface Compliance

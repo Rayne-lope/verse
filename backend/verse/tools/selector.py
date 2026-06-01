@@ -33,8 +33,9 @@ class ToolSelector:
             selected.update(["open_app", "close_app"])
         elif category == IntentCategory.BROWSER:
             selected.update([
-                "web_search", "open_url", "browser_navigate",
-                "browser_click", "browser_input", "browser_close"
+                "web_search", "open_url", "browser_navigate", "browser_inspect",
+                "browser_click", "browser_input", "browser_scroll",
+                "browser_go_back", "browser_close",
             ])
         elif category == IntentCategory.CALENDAR:
             selected.update(["read_calendar", "create_event"])
@@ -70,12 +71,17 @@ class ToolSelector:
             selected.update(["set_brightness", "get_brightness"])
         if any(k in text for k in ("browser", "chrome", "safari", "website", "cari di web", "google", "web")):
             selected.update([
-                "web_search", "open_url", "browser_navigate",
-                "browser_click", "browser_input", "browser_close"
+                "web_search", "open_url", "browser_navigate", "browser_inspect",
+                "browser_click", "browser_input", "browser_scroll",
+                "browser_go_back", "browser_close",
             ])
 
         # Filter the selected set to tools that are actually enabled in the workspace
         enabled_selected = [t for t in self.all_tools if t in selected]
 
-        # Return a capped minimal list (at most 5 tools)
-        return enabled_selected[:5]
+        # Cap the tool list to keep the LLM prompt small and first-token latency low.
+        # Browser turns need their full toolset (navigate/inspect/click/input/scroll/
+        # back/close) — inspect is mandatory for numeric-ID clicks — so they get a
+        # higher cap than other categories.
+        cap = 10 if category == IntentCategory.BROWSER else 5
+        return enabled_selected[:cap]

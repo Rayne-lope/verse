@@ -45,6 +45,58 @@ def test_fast_intent_classifier():
     assert not conf_req
 
 
+def test_classifier_web_action_beats_app_launch():
+    """Regression: requests that open an app AND act on the web must route to
+    BROWSER, not APP (which only exposes open_app/close_app to the LLM)."""
+    # App verb + web read intent -> BROWSER
+    cat, _, _ = fast_intent_classifier("buka wikipedia dan rangkum artikel antartika")
+    assert cat == IntentCategory.BROWSER
+
+    # App name + web search intent -> BROWSER
+    cat, _, _ = fast_intent_classifier("buka brave dan cari mobil listrik terbaru")
+    assert cat == IntentCategory.BROWSER
+
+    # Standalone web search -> BROWSER
+    cat, _, _ = fast_intent_classifier("cari fakta menarik tentang antartika")
+    assert cat == IntentCategory.BROWSER
+
+    # Pure app launch (no web action) stays APP
+    cat, _, _ = fast_intent_classifier("buka kalkulator")
+    assert cat == IntentCategory.APP
+    cat, _, _ = fast_intent_classifier("tutup chrome")
+    assert cat == IntentCategory.APP
+
+    # Guard: notes/calendar phrasing is NOT stolen by web-action keywords
+    cat, _, _ = fast_intent_classifier("baca catatan belanja")
+    assert cat == IntentCategory.NOTES
+    cat, _, _ = fast_intent_classifier("cari acara di kalender minggu ini")
+    assert cat == IntentCategory.CALENDAR
+
+
+def test_selector_includes_full_browser_toolset():
+    """Regression: browser_inspect/scroll/go_back must be selectable, and the
+    BROWSER category must not be truncated to 5 tools (inspect is required for
+    numeric-ID clicks)."""
+    browser_tools = [
+        "web_search", "open_url", "browser_navigate", "browser_inspect",
+        "browser_click", "browser_input", "browser_scroll", "browser_go_back",
+        "browser_close",
+    ]
+    selector = ToolSelector(browser_tools)
+
+    selected = selector.select("cari mobil listrik dan klik hasil pertama", IntentCategory.BROWSER)
+    # The newly implemented tools must be present.
+    assert "browser_inspect" in selected
+    assert "browser_scroll" in selected
+    assert "browser_go_back" in selected
+    # Browser turns get a higher cap so the full toolset survives.
+    assert len(selected) > 5
+
+    # Non-browser categories keep the tight 5-tool cap.
+    capped = selector.select("buka spotify, setel musik, pengingat, pesan, catatan", IntentCategory.CHAT)
+    assert len(capped) <= 5
+
+
 def test_tool_selector():
     all_tools = [
         "play_music", "pause_music", "remember", "open_app", "close_app",
