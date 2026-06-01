@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { contentVariants } from "./motion";
 import type { VerseState } from "../../types/ws";
@@ -12,7 +12,7 @@ interface CompactProps {
   hasNotch?: boolean;
 }
 
-function SpotifyIcon({ size = 16 }: { size?: number }) {
+function SpotifyIcon({ size = 20 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -49,12 +49,54 @@ function MusicIcon({ size = 16 }: { size?: number }) {
   );
 }
 
-function MusicVisualizer({ color }: { color: string }) {
+const FREQS  = [5.3, 7.1, 6.2, 8.4, 5.8];
+const PHASES = [0,   1.2, 2.4, 0.6, 3.1];
+const BAR_COUNT = 5;
+
+function PlayingVisualizer({ color }: { color: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const els = Array.from(container.querySelectorAll<HTMLDivElement>(".cpv-bar"));
+    const start = performance.now();
+
+    const tick = (ts: number) => {
+      const t = (ts - start) / 1000;
+      els.forEach((el, i) => {
+        const wave = (Math.sin(t * FREQS[i] + PHASES[i]) + 1) / 2;
+        const scale = 0.15 + wave * 0.85;
+        el.style.transform = `scaleY(${scale.toFixed(3)})`;
+      });
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current); };
+  }, []);
+
   return (
-    <div className="island-music-visualizer">
-      <span className="island-music-bar" style={{ backgroundColor: color }} />
-      <span className="island-music-bar" style={{ backgroundColor: color }} />
-      <span className="island-music-bar" style={{ backgroundColor: color }} />
+    <div
+      ref={containerRef}
+      style={{ display: "flex", alignItems: "center", gap: "2.5px", height: "16px" }}
+      aria-hidden="true"
+    >
+      {Array.from({ length: BAR_COUNT }).map((_, i) => (
+        <div
+          key={i}
+          className="cpv-bar"
+          style={{
+            width: "2.5px",
+            height: "16px",
+            background: color,
+            borderRadius: "1.5px",
+            transformOrigin: "center",
+            transform: "scaleY(0.15)",
+            willChange: "transform",
+          }}
+        />
+      ))}
     </div>
   );
 }
@@ -78,11 +120,13 @@ function CompactInner({ state, connected, hasNotch = false }: CompactProps) {
           exit="exit"
         >
           <div className="island-leading">
-            {isSpotify ? <SpotifyIcon /> : <MusicIcon />}
+            {isSpotify
+              ? <span className="island-spotify-icon"><SpotifyIcon /></span>
+              : <MusicIcon />}
           </div>
           {hasNotch && <div className="island-notch-spacer" />}
           <div className="island-trailing">
-            <MusicVisualizer color={brandColor} />
+            <PlayingVisualizer color={brandColor} />
           </div>
         </motion.div>
       );
