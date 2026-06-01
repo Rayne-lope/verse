@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import Any, Callable
 
-import numpy as np
-import sounddevice as sd
-
 from verse.config import AppConfig
+from verse.engines.base import VoiceEngine, VoiceEvent
 from verse.orchestrator import DEFAULT_SYSTEM_PROMPT
 from verse.state import State, StateMachine
 from verse.tools.registry import ToolRegistry
@@ -16,27 +15,25 @@ logger = logging.getLogger(__name__)
 
 _AUDIO_MIME = "audio/pcm;rate=16000"
 _MIC_SAMPLERATE = 16_000
-_MIC_BLOCKSIZE = 512       # 32 ms @ 16 kHz
 _RECONNECT_MAX = 30.0
 
 
-class GeminiLiveEngine:
+class LiveRealtimeEngine(VoiceEngine):
     """
-    Drop-in Orchestrator replacement that streams audio to/from Gemini Live API.
-
-    Exposes the same callback attributes (on_transcript, on_assistant_text,
-    on_audio_level, on_pipeline_event, on_tool_executed, on_vad_state) and the
-    same hotkey-drive methods (start_listening, stop_and_respond) as Orchestrator,
-    so main.py wiring is unchanged.
+    Persistent speech-to-speech voice engine using Gemini Live WebSocket API.
+    Audio is sent via send_audio(pcm), and events are streamed out via events().
+    Uses native server-side VAD and streaming audio/text responses.
     """
 
-    # Callbacks — same attribute names as Orchestrator
-    on_transcript: Callable[[str, bool], None] | None       # (text, partial)
-    on_assistant_text: Callable[[str], None] | None
-    on_audio_level: Callable[[float], None] | None
-    on_pipeline_event: Callable[[str, str, dict[str, Any]], None] | None
-    on_tool_executed: Callable[[str, str], None] | None
-    on_vad_state: Callable[[str, float], None] | None       # unused; kept for compat
+    # Callbacks — same compatibility attribute names as Orchestrator
+    on_transcript: Callable[[str, bool], None] | None = None
+    on_assistant_text: Callable[[str], None] | None = None
+    on_audio_level: Callable[[float], None] | None = None
+    on_pipeline_event: Callable[[str, str, dict[str, Any]], None] | None = None
+    on_tool_executed: Callable[[str, str], None] | None = None
+    on_vad_state: Callable[[str, float], None] | None = None
+    on_user_partial_transcript: Callable[[str, float | None], None] | None = None
+    on_user_final_transcript: Callable[[str], None] | None = None
 
     def __init__(
         self,
@@ -48,13 +45,6 @@ class GeminiLiveEngine:
         self._registry = registry
         self._state_machine = state_machine
 
-        self.on_transcript = None
-        self.on_assistant_text = None
-        self.on_audio_level = None
-        self.on_pipeline_event = None
-        self.on_tool_executed = None
-        self.on_vad_state = None
-
         self._loop: asyncio.AbstractEventLoop | None = None
         self._client = None
         self._session = None
@@ -64,13 +54,10 @@ class GeminiLiveEngine:
 
         # Background tasks
         self._session_task: asyncio.Task | None = None
-
-        # Mic capture
-        self._mic_stream: sd.InputStream | None = None
-        self._streaming = False
         self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=60)
+        self._event_queue: asyncio.Queue[VoiceEvent] = asyncio.Queue()
 
-        # Playback
+        # Playback (can be managed by caller or internally; we keep internal player for fast local playback)
         self._player = None
 
         # Per-turn state
@@ -83,14 +70,12 @@ class GeminiLiveEngine:
         return self._state_machine
 
     # ------------------------------------------------------------------
-    # Lifecycle
+    # VoiceEngine Interface Compliance
     # ------------------------------------------------------------------
 
-    async def start(self) -> None:
+    async def start_session(self) -> None:
         """
-        Initialise the engine. Validates the API key, creates the Gemini client,
-        and starts the persistent reconnecting session loop.
-        Raises RuntimeError immediately if the key is missing (triggers fallback).
+        Connect to Gemini Live. Raises RuntimeError if API key is missing.
         """
         import keyring
         from google import genai
@@ -111,12 +96,45 @@ class GeminiLiveEngine:
         self._player = StreamingPlayer(on_audio_level=self._on_playback_level)
         self._session_task = asyncio.create_task(self._session_loop())
 
-    async def close(self) -> None:
-        """Shut down gracefully."""
-        self._closed = True
-        self._streaming = False
-        self._stop_mic()
+    async def send_audio(self, pcm: bytes) -> None:
+        """Stream microphone audio PCM chunks directly into the API send loop queue."""
+        if self._closed:
+            return
+        try:
+            self._audio_queue.put_nowait(pcm)
+        except asyncio.QueueFull:
+            pass
 
+    async def events(self) -> AsyncIterator[VoiceEvent]:
+        """Stream standard VoiceEvents out to the caller runtime."""
+        while True:
+            yield await self._event_queue.get()
+
+    async def cancel_response(self) -> None:
+        """Send barge-in interrupt block to the Gemini Live session."""
+        if self._player:
+            await self._player.clear()
+
+        if self._state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+            try:
+                self._state_machine.audio_done()
+            except Exception:
+                pass
+
+        if self._session:
+            try:
+                from google.genai import types
+                await self._session.send_realtime_input(
+                    activity_start=types.ActivityStart()
+                )
+            except Exception as exc:
+                logger.warning("Barge-in activity_start failed: %s", exc)
+
+        self._enqueue_event("interrupted", {})
+
+    async def close(self) -> None:
+        """Close connections and tasks gracefully."""
+        self._closed = True
         if self._session_task and not self._session_task.done():
             self._session_task.cancel()
             try:
@@ -128,55 +146,41 @@ class GeminiLiveEngine:
             self._player.close()
 
     # ------------------------------------------------------------------
-    # Hotkey interface — matches Orchestrator
+    # Compatibility Methods for main.py integration
     # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Start the persistent Live connection."""
+        await self.start_session()
 
     def start_listening(self) -> bool:
         """
-        Open mic and start streaming audio to Gemini.
+        Open session audio capture state.
         Called from the hotkey-press handler (sync, main thread).
         """
         if not self._state_machine.is_idle:
             return False
 
         self._state_machine.hotkey_pressed()   # IDLE → LISTENING
-        self._streaming = True
         self._speaking_started = False
         self._input_transcript = ""
         self._output_transcript = ""
 
-        self._mic_stream = sd.InputStream(
-            samplerate=_MIC_SAMPLERATE,
-            channels=1,
-            dtype="float32",
-            blocksize=_MIC_BLOCKSIZE,
-            callback=self._audio_cb,
-        )
-        self._mic_stream.start()
-
-        if self._loop and not self._config.hotkey.conversation_mode:
+        # Trigger session start activity block
+        if self._loop:
             asyncio.run_coroutine_threadsafe(
                 self._signal_activity_start(), self._loop
             )
 
-        self._emit("gemini", "listening_start", {})
+        self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "listening_start", "metadata": {}})
         return True
 
-    async def stop_and_respond(self) -> None:
+    async def stop_and_respond(self, *, history: list[dict[str, Any]] | None = None) -> str:
         """
-        End the user's audio turn and wait for Gemini to respond.
+        End the user's turn.
         Called from the hotkey-release handler (async, event loop thread).
         """
-        if not self._streaming:
-            return
-
-        self._streaming = False
-        self._stop_mic()
-
-        # Drain any remaining queue chunks before signalling end of turn
-        await asyncio.sleep(0.12)
-
-        if self._session and not self._config.hotkey.conversation_mode:
+        if self._session:
             try:
                 from google.genai import types
                 await self._session.send_realtime_input(
@@ -186,34 +190,23 @@ class GeminiLiveEngine:
                 logger.warning("activity_end send failed: %s", exc)
 
         self._state_machine.hotkey_released()  # LISTENING → THINKING
+        return ""
 
     def request_barge_in(self) -> None:
-        """Interrupt current assistant speech. Called from WS interrupt message."""
+        """Interrupt active speak responses."""
         if self._loop:
-            asyncio.run_coroutine_threadsafe(self._do_barge_in(), self._loop)
+            asyncio.run_coroutine_threadsafe(self.cancel_response(), self._loop)
 
-    async def _do_barge_in(self) -> None:
-        if self._player:
-            await self._player.clear()
-
-        if self._state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-            self._state_machine.audio_done()
-
-        # Ask Gemini to stop its current output
-        if self._session:
-            try:
-                from google.genai import types
-                await self._session.send_realtime_input(
-                    activity_start=types.ActivityStart()
-                )
-            except Exception as exc:
-                logger.warning("barge-in activity_start failed: %s", exc)
-
-        self._emit("gemini", "interrupted", {})
+    def start_auto_listening(self) -> None:
+        """Enable conversation mode."""
         self.start_listening()
 
+    def deactivate_conversation(self) -> None:
+        """Disable conversation mode."""
+        pass
+
     # ------------------------------------------------------------------
-    # Persistent session loop (reconnects on error)
+    # Persistent Session Loops
     # ------------------------------------------------------------------
 
     async def _session_loop(self) -> None:
@@ -228,7 +221,7 @@ class GeminiLiveEngine:
                     if self._session_ready is not None:
                         self._session_ready.set()
                     self._backoff = 1.0
-                    self._emit("gemini", "connected", {})
+                    self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "connected", "metadata": {}})
                     logger.info("Gemini Live connected")
 
                     send_task = asyncio.create_task(self._send_loop(session))
@@ -252,7 +245,7 @@ class GeminiLiveEngine:
                 logger.warning(
                     "Gemini Live error: %s — reconnecting in %.1fs", exc, self._backoff
                 )
-                self._emit("gemini", "reconnecting", {"message": str(exc)})
+                self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "reconnecting", "metadata": {"message": str(exc)}})
                 await asyncio.sleep(self._backoff)
                 self._backoff = min(self._backoff * 2, _RECONNECT_MAX)
 
@@ -260,12 +253,8 @@ class GeminiLiveEngine:
         if self._session_ready is not None:
             self._session_ready.clear()
 
-    # ------------------------------------------------------------------
-    # Audio send loop (runs concurrently with receive loop)
-    # ------------------------------------------------------------------
-
     async def _send_loop(self, session) -> None:
-        """Drain _audio_queue and forward PCM chunks to Gemini."""
+        """Forward PCM chunks to the Live API WebSocket."""
         while True:
             try:
                 pcm = await asyncio.wait_for(self._audio_queue.get(), timeout=0.1)
@@ -283,10 +272,6 @@ class GeminiLiveEngine:
                 break
             except Exception as exc:
                 logger.debug("Audio chunk send failed: %s", exc)
-
-    # ------------------------------------------------------------------
-    # Receive loop
-    # ------------------------------------------------------------------
 
     async def _receive_loop(self, session) -> None:
         async for response in session.receive():
@@ -310,14 +295,19 @@ class GeminiLiveEngine:
                                 self._state_machine.playback_started()
                             except Exception:
                                 pass
-                            self._emit("gemini", "speaking_start", {})
+                            self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "speaking_start", "metadata": {}})
+                        
+                        # Local audio playback
                         if self._player:
                             await self._player.enqueue(inline.data)
+                        
+                        # Output audio voice event
+                        self._enqueue_event("audio", {"pcm": inline.data})
 
                     text = getattr(part, "text", None)
-                    if text and self.on_assistant_text:
+                    if text:
                         self._output_transcript += text
-                        self.on_assistant_text(self._output_transcript)
+                        self._enqueue_event("assistant_text", {"text": self._output_transcript})
 
             # User speech transcript (streaming)
             in_tr = getattr(sc, "input_transcription", None)
@@ -325,20 +315,19 @@ class GeminiLiveEngine:
                 delta = getattr(in_tr, "text", None) or ""
                 if delta:
                     self._input_transcript += delta
-                    if self.on_transcript:
-                        self.on_transcript(self._input_transcript, True)
+                    self._enqueue_event("transcript", {"text": self._input_transcript, "partial": True})
 
             # Output transcript (streamed text of what Gemini says)
             out_tr = getattr(sc, "output_transcription", None)
             if out_tr is not None:
                 delta = getattr(out_tr, "text", None) or ""
-                if delta and self.on_assistant_text:
+                if delta:
                     self._output_transcript += delta
-                    self.on_assistant_text(self._output_transcript)
+                    self._enqueue_event("assistant_text", {"text": self._output_transcript})
 
             # Server-initiated barge-in
             if getattr(sc, "interrupted", False):
-                self._emit("gemini", "interrupted", {})
+                self._enqueue_event("interrupted", {})
                 self._speaking_started = False
                 if self._player:
                     await self._player.clear()
@@ -346,12 +335,12 @@ class GeminiLiveEngine:
             # Turn complete — drain remaining audio, then go idle
             if getattr(sc, "turn_complete", False):
                 # Send final transcript
-                if self._input_transcript and self.on_transcript:
-                    self.on_transcript(self._input_transcript, False)
+                if self._input_transcript:
+                    self._enqueue_event("transcript", {"text": self._input_transcript, "partial": False})
                 self._input_transcript = ""
                 self._output_transcript = ""
                 self._speaking_started = False
-                self._emit("gemini", "turn_complete", {})
+                self._enqueue_event("turn_complete", {})
                 if self._player:
                     self._player.signal_end()
                 asyncio.create_task(self._finish_turn())
@@ -362,19 +351,13 @@ class GeminiLiveEngine:
             await self._handle_tool_calls(tool_call, session)
 
     async def _finish_turn(self) -> None:
-        """Wait for audio to drain, transition to IDLE, optionally auto-listen."""
         if self._player:
             await self._player.wait_drained()
         try:
-            self._state_machine.audio_done()   # SPEAKING → IDLE
+            self._state_machine.audio_done()
         except Exception:
             pass
-        if self._config.hotkey.conversation_mode and not self._closed:
-            self.start_listening()
-
-    # ------------------------------------------------------------------
-    # Tool calling
-    # ------------------------------------------------------------------
+        self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "turn_complete", "metadata": {}})
 
     async def _handle_tool_calls(self, tool_call, session) -> None:
         from google.genai import types
@@ -382,16 +365,17 @@ class GeminiLiveEngine:
         responses = []
         for fc in tool_call.function_calls:
             name = fc.name
-            self._emit("tool", "started", {"name": name})
+            self._enqueue_event("pipeline_event", {"stage": "tool", "event": "started", "metadata": {"name": name}})
             try:
                 result = self._registry.execute_call(
                     {"function": {"name": name, "arguments": fc.args}}
                 )
             except Exception as exc:
                 result = f"Tool '{name}' failed: {exc}"
-            self._emit("tool", "completed", {"name": name, "result": result})
-            if self.on_tool_executed:
-                self.on_tool_executed(name, result)
+            
+            self._enqueue_event("pipeline_event", {"stage": "tool", "event": "completed", "metadata": {"name": name, "result": result}})
+            self._enqueue_event("tool_call", {"name": name, "result": result})
+            
             responses.append(
                 types.FunctionResponse(id=fc.id, name=name, response={"output": result})
             )
@@ -402,38 +386,38 @@ class GeminiLiveEngine:
             logger.warning("Tool response send failed: %s", exc)
 
     # ------------------------------------------------------------------
-    # Audio capture (sounddevice callback — C audio thread)
-    # ------------------------------------------------------------------
-
-    def _audio_cb(
-        self,
-        indata: np.ndarray,
-        frames: int,
-        time_info,
-        status: sd.CallbackFlags,
-    ) -> None:
-        if not self._streaming or self._loop is None:
-            return
-
-        pcm = (indata[:, 0] * 32767).astype(np.int16).tobytes()
-        level = min(1.0, float(np.sqrt(np.mean(indata ** 2))) * 5.0)
-
-        if self.on_audio_level:
-            self._loop.call_soon_threadsafe(
-                lambda lvl=level: self.on_audio_level(lvl) if self.on_audio_level else None
-            )
-        self._loop.call_soon_threadsafe(self._try_enqueue, pcm)
-
-    def _try_enqueue(self, pcm: bytes) -> None:
-        """Safely enqueue from event-loop thread. Drops chunk if queue is full."""
-        try:
-            self._audio_queue.put_nowait(pcm)
-        except asyncio.QueueFull:
-            pass
-
-    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _enqueue_event(self, type_: str, payload: dict[str, Any]) -> None:
+        event = VoiceEvent(type=type_, payload=payload)
+        
+        # Fire standard callbacks concurrently
+        if type_ == "transcript":
+            if self.on_transcript:
+                self.on_transcript(payload["text"], payload.get("partial", False))
+            if payload.get("partial", False) and self.on_user_partial_transcript:
+                self.on_user_partial_transcript(payload["text"], None)
+            elif not payload.get("partial", False) and self.on_user_final_transcript:
+                self.on_user_final_transcript(payload["text"])
+        elif type_ == "assistant_text" and self.on_assistant_text:
+            self.on_assistant_text(payload["text"])
+        elif type_ == "audio_level" and self.on_audio_level:
+            self.on_audio_level(payload["level"])
+        elif type_ == "tool_call" and self.on_tool_executed:
+            self.on_tool_executed(payload["name"], payload["result"])
+        elif type_ == "pipeline_event" and self.on_pipeline_event:
+            self.on_pipeline_event(payload["stage"], payload["event"], payload["metadata"])
+        elif type_ == "vad_state" and self.on_vad_state:
+            self.on_vad_state(payload["state"], payload["probability"])
+
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._event_queue.put_nowait, event)
+        else:
+            self._event_queue.put_nowait(event)
+
+    def _on_playback_level(self, level: float) -> None:
+        self._enqueue_event("audio_level", {"level": level})
 
     async def _signal_activity_start(self) -> None:
         if self._session_ready is not None:
@@ -449,27 +433,6 @@ class GeminiLiveEngine:
                 )
             except Exception as exc:
                 logger.warning("activity_start failed: %s", exc)
-
-    def _stop_mic(self) -> None:
-        if self._mic_stream is not None:
-            try:
-                self._mic_stream.stop()
-                self._mic_stream.close()
-            except Exception:
-                pass
-            self._mic_stream = None
-
-    def _on_playback_level(self, level: float) -> None:
-        if self.on_audio_level:
-            self.on_audio_level(level)
-
-    def _emit(self, stage: str, event: str, meta: dict[str, Any]) -> None:
-        if self.on_pipeline_event:
-            self.on_pipeline_event(stage, event, meta)
-
-    # ------------------------------------------------------------------
-    # Config builders
-    # ------------------------------------------------------------------
 
     def _make_live_config(self):
         from google.genai import types
@@ -495,14 +458,12 @@ class GeminiLiveEngine:
         if tools:
             config_kwargs["tools"] = tools
 
-        # Transcription (may not exist in older SDK versions)
         try:
             config_kwargs["input_audio_transcription"] = types.AudioTranscriptionConfig()
             config_kwargs["output_audio_transcription"] = types.AudioTranscriptionConfig()
         except AttributeError:
             pass
 
-        # Activity detection config (push-to-talk vs conversation mode)
         try:
             config_kwargs["realtime_input_config"] = types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
@@ -515,7 +476,6 @@ class GeminiLiveEngine:
         return types.LiveConnectConfig(**config_kwargs)
 
     def _convert_tools(self) -> list:
-        """Convert OpenAI-format ToolRegistry definitions to google.genai types."""
         from google.genai import types
 
         definitions = self._registry.list_definitions(self._config.tools.enabled)

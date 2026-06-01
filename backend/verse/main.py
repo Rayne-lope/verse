@@ -114,18 +114,20 @@ def build_client_message_handler(
 
 
 def _build_engine(config: AppConfig, force_classic: bool = False, debug_logger = None):
-    """Return (engine, is_gemini). Gemini engine is duck-type compatible
-    with Orchestrator so the wiring below is identical for both."""
+    """Return (engine, is_gemini). Both engines are fully compliant with
+    VoiceEngine and duck-type compatible with main.py runner wiring."""
     if not force_classic and config.voice.engine == "gemini_live":
-        from verse.engines.gemini_live import GeminiLiveEngine
+        from verse.engines.live import LiveRealtimeEngine
         from verse.state import StateMachine
         from verse.tools.registry import build_default_registry
 
         registry = build_default_registry(config.tools.enabled)
         state_machine = StateMachine()
-        return GeminiLiveEngine(config, registry, state_machine), True
+        return LiveRealtimeEngine(config, registry, state_machine), True
 
-    return build_orchestrator(config, debug_logger=debug_logger), False
+    orchestrator = build_orchestrator(config, debug_logger=debug_logger)
+    from verse.engines.classic import ClassicPipelineEngine
+    return ClassicPipelineEngine(orchestrator), False
 
 
 def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
