@@ -37,27 +37,34 @@ class DeepSeekAdapter(LLMAdapter):
     ) -> AsyncIterator[LLMStreamEvent]:
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[LLMStreamEvent | None] = asyncio.Queue()
+        stop_event = threading.Event()
 
         def produce() -> None:
             try:
-                for event in self._stream_chat_sync(messages, tools):
+                for event in self._stream_chat_sync(messages, tools, stop_event=stop_event):
+                    if stop_event.is_set():
+                        break
                     loop.call_soon_threadsafe(queue.put_nowait, event)
             except Exception as exc:
-                loop.call_soon_threadsafe(
-                    queue.put_nowait,
-                    LLMStreamEvent(type="error", raw=exc),
-                )
+                if not stop_event.is_set():
+                    loop.call_soon_threadsafe(
+                        queue.put_nowait,
+                        LLMStreamEvent(type="error", raw=exc),
+                    )
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
         thread = threading.Thread(target=produce, daemon=True)
         thread.start()
 
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            yield event
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield event
+        finally:
+            stop_event.set()
 
     def _chat_sync(
         self,
@@ -82,6 +89,8 @@ class DeepSeekAdapter(LLMAdapter):
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        *,
+        stop_event: threading.Event | None = None,
     ) -> Iterator[LLMStreamEvent]:
         request: dict[str, Any] = {
             "model": self.config.model,
@@ -97,6 +106,8 @@ class DeepSeekAdapter(LLMAdapter):
         emitted_tool_indexes: set[int] = set()
 
         for chunk in stream:
+            if stop_event is not None and stop_event.is_set():
+                break
             choice = _first_choice(chunk)
             if choice is None:
                 continue

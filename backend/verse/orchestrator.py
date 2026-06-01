@@ -284,6 +284,80 @@ class Orchestrator:
                     logger.exception("Error in user on_pipeline_event callback")
         self._wrapped_on_pipeline_event = wrapped
 
+    def _is_active_turn(self, turn: TurnContext | None) -> bool:
+        return (
+            turn is not None
+            and self._current_turn is turn
+            and not turn.is_cancelled()
+        )
+
+    def _emit_pipeline_event_for_turn(
+        self,
+        turn: TurnContext | None,
+        stage: str,
+        event: str,
+        metadata: dict[str, Any],
+    ) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_pipeline_event:
+            self.on_pipeline_event(stage, event, metadata)
+
+    def _emit_transcript_for_turn(self, turn: TurnContext | None, transcript: str) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_transcript:
+            self.on_transcript(transcript)
+
+    def _emit_assistant_text_for_turn(self, turn: TurnContext | None, text: str) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_assistant_text:
+            self.on_assistant_text(text)
+
+    def _emit_user_partial_for_turn(
+        self,
+        turn: TurnContext | None,
+        text: str,
+        stability: float | None,
+    ) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_user_partial_transcript:
+            self.on_user_partial_transcript(text, stability)
+
+    def _emit_user_final_for_turn(self, turn: TurnContext | None, text: str) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_user_final_transcript:
+            self.on_user_final_transcript(text)
+
+    def _emit_tool_executed_for_turn(
+        self,
+        turn: TurnContext | None,
+        name: str,
+        result: str,
+    ) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_tool_executed:
+            self.on_tool_executed(name, result)
+
+    def _emit_audio_level_for_turn(self, turn: TurnContext | None, level: float) -> None:
+        if turn is not None and not self._is_active_turn(turn):
+            return
+        if self.on_audio_level:
+            self.on_audio_level(level)
+
+    def _transition_for_turn(
+        self,
+        turn: TurnContext | None,
+        action: Callable[[], Any],
+    ) -> Any | None:
+        if turn is not None and not self._is_active_turn(turn):
+            return None
+        return action()
+
     def _start_latency_tracker(self, turn_id: int | str | None) -> None:
         if turn_id is None:
             import time
@@ -352,6 +426,12 @@ class Orchestrator:
             raise RuntimeError("Orchestrator has no recorder configured")
         # Ignore presses while busy or during the error-reset window.
         if self.recorder.is_recording or not self.state_machine.is_idle:
+            if (
+                not self.recorder.is_recording
+                and not is_auto
+                and self.state_machine.state in (State.THINKING, State.PREPARING_AUDIO, State.SPEAKING)
+            ):
+                return self.request_barge_in()
             return False
         if not is_auto:
             # Explicit PTT press → one-shot turn, no auto-continue.
@@ -372,6 +452,7 @@ class Orchestrator:
             self._llm_response = {}
 
         # Reset streaming STT state for the new turn
+        self._current_turn = None
         self._streaming_stt_active = False
         self._early_intent_executed = False
         self._last_partial_text = ""
@@ -431,6 +512,8 @@ class Orchestrator:
             start_stt = time.time()
             self._latency_mark("stt_start")
             transcript = await self._transcribe(audio)
+            if not self._is_active_turn(self._current_turn):
+                return ""
             self._latency_mark("stt_final", chars=len(transcript))
             self._latency_metadata(transcript_chars=len(transcript))
             stt_duration = time.time() - start_stt
@@ -447,6 +530,8 @@ class Orchestrator:
 
             start_llm = time.time()
             reply = await self._respond_and_speak_streaming(transcript, history or [])
+            if not self._is_active_turn(self._current_turn):
+                return reply
             llm_duration = time.time() - start_llm
             print(f"[Debug] Response took: {llm_duration:.2f}s")
 
@@ -484,15 +569,13 @@ class Orchestrator:
             raise
 
     async def _transcribe(self, audio: bytes) -> str:
+        turn = self._current_turn
         language = self.config.stt.language
-        if self.on_pipeline_event:
-            self.on_pipeline_event("stt", "started", {})
+        self._emit_pipeline_event_for_turn(turn, "stt", "started", {})
         transcript = await self.stt.transcribe(audio, language=language)
         transcript = transcript.strip()
-        if self.on_pipeline_event:
-            self.on_pipeline_event("stt", "completed", {"text": transcript})
-        if self.on_transcript:
-            self.on_transcript(transcript)
+        self._emit_pipeline_event_for_turn(turn, "stt", "completed", {"text": transcript})
+        self._emit_transcript_for_turn(turn, transcript)
         return transcript
 
     def _build_llm_context(
@@ -526,6 +609,8 @@ class Orchestrator:
             self._llm_messages = [{"role": "user", "content": transcript}]
             self._llm_response = {"text": local_reply}
             self._remember_turn(transcript, local_reply)
+            if not self._is_active_turn(turn):
+                return local_reply
             await self.speak_text_immediately(turn, local_reply)
             if self.conversation_mode_active:
                 self.start_auto_listening()
@@ -554,16 +639,32 @@ class Orchestrator:
             tool_calls = result["tool_calls"]
             text = result["text"].strip()
 
+            if not self._is_active_turn(turn):
+                if speech_task is not None:
+                    try:
+                        await speech_task
+                    except asyncio.CancelledError:
+                        pass
+                return text
+
             if not tool_calls:
                 reply = text
                 self._llm_response = {"text": reply, "tool_calls": []}
                 self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
                 if speech_task is not None:
-                    await speech_task
+                    try:
+                        await speech_task
+                    except asyncio.CancelledError:
+                        pass
                 break
 
             if speech_task is not None:
-                await speech_task
+                try:
+                    await speech_task
+                except asyncio.CancelledError:
+                    pass
+            if not self._is_active_turn(turn):
+                return text
 
             messages.append(
                 {
@@ -581,10 +682,9 @@ class Orchestrator:
                         await self.speak_text_immediately(self._current_turn, ack_text)
                         self.state_machine.force_thinking()
 
-                import time
-                start_tool = time.time()
-                tool_result = self._run_tool(tool_call)
-                tool_duration = time.time() - start_tool
+                tool_result, tool_duration = await self._run_tool_for_turn(turn, tool_call)
+                if not self._is_active_turn(turn):
+                    return text
                 total_tool_ms += tool_duration
                 tool_count += 1
 
@@ -604,18 +704,23 @@ class Orchestrator:
             )
             llm_first_token_seen = llm_first_token_seen or result["first_token_seen"]
             reply = result["text"].strip()
-            self._llm_response = {"text": reply, "tool_calls": []}
-            self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+            if self._is_active_turn(turn):
+                self._llm_response = {"text": reply, "tool_calls": []}
+                self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
             if result["speech_task"] is not None:
-                await result["speech_task"]
+                try:
+                    await result["speech_task"]
+                except asyncio.CancelledError:
+                    pass
 
         self._llm_messages = messages
         self._latency_metadata(tool_count=tool_count)
         if self.debug_logger is not None and self._current_turn_id is not None:
             self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
 
-        self._remember_turn(transcript, reply)
-        if self.conversation_mode_active:
+        if self._is_active_turn(turn):
+            self._remember_turn(transcript, reply)
+        if self._is_active_turn(turn) and self.conversation_mode_active:
             self.start_auto_listening()
         return reply
 
@@ -661,7 +766,7 @@ class Orchestrator:
 
             try:
                 async for event in self._llm_stream_events(messages, tools):
-                    if turn.is_cancelled():
+                    if not self._is_active_turn(turn):
                         break
 
                     if event.type == "text_delta":
@@ -669,8 +774,7 @@ class Orchestrator:
                             continue
 
                         text_parts.append(event.text)
-                        if self.on_assistant_text:
-                            self.on_assistant_text("".join(text_parts))
+                        self._emit_assistant_text_for_turn(turn, "".join(text_parts))
 
                         if event.text.strip():
                             meaningful_text_seen = True
@@ -679,7 +783,8 @@ class Orchestrator:
                                 first_token_marked = True
                             first_text.set()
 
-                        await text_queue.put(event.text)
+                        if self._is_active_turn(turn):
+                            await text_queue.put(event.text)
                         continue
 
                     if event.type in ("tool_call_delta", "tool_call_done"):
@@ -708,24 +813,33 @@ class Orchestrator:
                 await text_queue.put(sentinel)
 
         producer_task = asyncio.create_task(produce())
+        turn.llm_task = producer_task
         first_text_task = asyncio.create_task(first_text.wait())
         speech_task: asyncio.Task[None] | None = None
 
-        done, _ = await asyncio.wait(
-            {producer_task, first_text_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        if first_text.is_set():
-            speech_task = asyncio.create_task(self.speak_streaming(turn, queued_text_stream()))
+        try:
+            done, _ = await asyncio.wait(
+                {producer_task, first_text_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if first_text.is_set() and self._is_active_turn(turn):
+                speech_task = asyncio.create_task(self.speak_streaming(turn, queued_text_stream()))
+                turn.tts_task = speech_task
 
-        if first_text_task not in done and not first_text_task.done():
-            first_text_task.cancel()
+            if first_text_task not in done and not first_text_task.done():
+                first_text_task.cancel()
+                try:
+                    await first_text_task
+                except asyncio.CancelledError:
+                    pass
+
             try:
-                await first_text_task
+                await producer_task
             except asyncio.CancelledError:
                 pass
-
-        await producer_task
+        finally:
+            if turn.llm_task is producer_task:
+                turn.llm_task = None
 
         return {
             "text": "".join(text_parts),
@@ -956,6 +1070,7 @@ class Orchestrator:
             logger.error(f"memory extraction failed: {exc}")
 
     def _try_local_intent(self, transcript: str) -> str | None:
+        turn = self._current_turn
         if not self.config.intent.local_router_enabled:
             return None
 
@@ -980,46 +1095,45 @@ class Orchestrator:
             return None
 
         if match.confidence < threshold:
-            if self.on_pipeline_event:
-                self.on_pipeline_event(
-                    "intent",
-                    "local_missed",
-                    {
-                        "intent": match.intent,
-                        "confidence": match.confidence,
-                        "threshold": threshold,
-                    },
-                )
+            self._emit_pipeline_event_for_turn(
+                turn,
+                "intent",
+                "local_missed",
+                {
+                    "intent": match.intent,
+                    "confidence": match.confidence,
+                    "threshold": threshold,
+                },
+            )
             return None
 
         if match.tool_name and not self._local_intent_tool_available(match.tool_name):
-            if self.on_pipeline_event:
-                self.on_pipeline_event(
-                    "intent",
-                    "local_unavailable",
-                    {
-                        "intent": match.intent,
-                        "confidence": match.confidence,
-                        "tool": match.tool_name,
-                    },
-                )
-            return None
-
-        if self.on_pipeline_event:
-            self.on_pipeline_event(
+            self._emit_pipeline_event_for_turn(
+                turn,
                 "intent",
-                "local_matched",
+                "local_unavailable",
                 {
                     "intent": match.intent,
                     "confidence": match.confidence,
                     "tool": match.tool_name,
-                    "category": category.value,
                 },
             )
+            return None
+
+        self._emit_pipeline_event_for_turn(
+            turn,
+            "intent",
+            "local_matched",
+            {
+                "intent": match.intent,
+                "confidence": match.confidence,
+                "tool": match.tool_name,
+                "category": category.value,
+            },
+        )
 
         reply = self._execute_local_intent(match)
-        if self.on_assistant_text:
-            self.on_assistant_text(reply)
+        self._emit_assistant_text_for_turn(turn, reply)
         return reply
 
     # --- Streaming STT partial transcript handling ---------------------------
@@ -1076,21 +1190,20 @@ class Orchestrator:
         self._early_intent_executed = True
         self._last_partial_text = transcript
 
-        if self.on_pipeline_event:
-            self.on_pipeline_event(
-                "intent",
-                "early_local_matched",
-                {
-                    "intent": match.intent,
-                    "confidence": match.confidence,
-                    "stability": stability,
-                    "partial": transcript,
-                },
-            )
+        self._emit_pipeline_event_for_turn(
+            self._current_turn,
+            "intent",
+            "early_local_matched",
+            {
+                "intent": match.intent,
+                "confidence": match.confidence,
+                "stability": stability,
+                "partial": transcript,
+            },
+        )
 
         reply = self._execute_local_intent(match)
-        if self.on_assistant_text:
-            self.on_assistant_text(reply)
+        self._emit_assistant_text_for_turn(self._current_turn, reply)
         return reply
 
     async def _run_streaming_stt_task(self) -> None:
@@ -1164,8 +1277,7 @@ class Orchestrator:
                     result = await send_partial()
                     if result is not None:
                         text, stability = result
-                        if self.on_user_partial_transcript:
-                            self.on_user_partial_transcript(text, stability)
+                        self._emit_user_partial_for_turn(self._current_turn, text, stability)
 
                         # Check for early local intent from stable partial
                         early_reply = self._try_local_intent_from_partial(
@@ -1311,6 +1423,50 @@ class Orchestrator:
             self.on_tool_executed(name, result)
         return result
 
+    async def _run_tool_for_turn(
+        self,
+        turn: TurnContext,
+        tool_call: dict[str, Any],
+    ) -> tuple[str, float]:
+        import time
+
+        if not self._is_active_turn(turn):
+            return "", 0.0
+
+        name = tool_call.get("function", {}).get("name", "")
+        self._latency_mark("tool_start", name=name)
+        self._emit_pipeline_event_for_turn(turn, "tool", "started", {"name": name})
+        start = time.time()
+
+        async def execute() -> str:
+            try:
+                return await asyncio.to_thread(self.registry.execute_call, tool_call)
+            except Exception as exc:
+                return f"Tool '{name}' failed: {exc}"
+
+        task = asyncio.create_task(execute())
+        turn.tool_tasks.add(task)
+        try:
+            result = await task
+        except asyncio.CancelledError:
+            return "", time.time() - start
+        finally:
+            turn.tool_tasks.discard(task)
+
+        duration = time.time() - start
+        if not self._is_active_turn(turn):
+            return result, duration
+
+        self._latency_mark("tool_done", name=name, ok=not result.startswith(f"Tool '{name}' failed:"))
+        self._emit_pipeline_event_for_turn(
+            turn,
+            "tool",
+            "completed",
+            {"name": name, "result": result},
+        )
+        self._emit_tool_executed_for_turn(turn, name, result)
+        return result, duration
+
     def _clean_markdown_for_tts(self, text: str) -> str:
         import re
         if not text:
@@ -1346,63 +1502,73 @@ class Orchestrator:
         turn: TurnContext,
         text: str,
     ) -> None:
-        if turn.is_cancelled():
+        if not self._is_active_turn(turn):
             return
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            turn.tts_task = current_task
 
         self._barge_in_requested = False
         self._barge_in_handled = False
 
-        if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
-            # Fallback to non-realtime play
-            clean_text = self._clean_markdown_for_tts(text)
-            if not clean_text:
+        try:
+            if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
+                # Fallback to non-realtime play
+                clean_text = self._clean_markdown_for_tts(text)
+                if not clean_text:
+                    return
+
+                if self.state_machine.state == State.THINKING:
+                    self._transition_for_turn(turn, self.state_machine.tts_ready)
+                self._emit_pipeline_event_for_turn(turn, "tts", "started", {})
+
+                self._latency_mark("tts_request_start", chars=len(clean_text))
+                audio = await self.tts.synthesize(clean_text)
+                interrupted = False
+                if audio and self._is_active_turn(turn):
+                    self._latency_mark("tts_first_audio", bytes=len(audio))
+                    self._output_audio_bytes = audio
+                    if self._play is not None:
+                        self._transition_for_turn(turn, self.state_machine.playback_started)
+                        self._latency_mark("playback_start")
+                        stop_event = threading.Event()
+                        self._playback_stop_event = stop_event
+                        turn.playback_stop_event = stop_event
+                        try:
+                            await asyncio.to_thread(self._play_audio_blocking, audio, stop_event, turn)
+                        finally:
+                            if self._playback_stop_event is stop_event:
+                                self._playback_stop_event = None
+                            if turn.playback_stop_event is stop_event:
+                                turn.playback_stop_event = None
+                        interrupted = stop_event.is_set()
+                        self._latency_mark("playback_done", interrupted=interrupted)
+
+                if interrupted:
+                    self._finish_barge_in()
+                    return
+
+                self._emit_pipeline_event_for_turn(turn, "tts", "completed", {})
+                if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                    self._transition_for_turn(turn, self.state_machine.audio_done)
                 return
+        finally:
+            if current_task is not None and turn.tts_task is current_task:
+                turn.tts_task = None
 
-            if self.state_machine.state == State.THINKING:
-                self.state_machine.tts_ready()
-            if self.on_pipeline_event:
-                self.on_pipeline_event("tts", "started", {})
-
-            self._latency_mark("tts_request_start", chars=len(clean_text))
-            audio = await self.tts.synthesize(clean_text)
-            interrupted = False
-            if audio:
-                self._latency_mark("tts_first_audio", bytes=len(audio))
-                self._output_audio_bytes = audio
-                if self._play is not None:
-                    self.state_machine.playback_started()
-                    self._latency_mark("playback_start")
-                    stop_event = threading.Event()
-                    self._playback_stop_event = stop_event
-                    try:
-                        await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
-                    finally:
-                        if self._playback_stop_event is stop_event:
-                            self._playback_stop_event = None
-                    interrupted = stop_event.is_set()
-                    self._latency_mark("playback_done", interrupted=interrupted)
-
-            if interrupted:
-                self._finish_barge_in()
-                return
-
-            if self.on_pipeline_event:
-                self.on_pipeline_event("tts", "completed", {})
-            if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-                self.state_machine.audio_done()
-            return
-
-        player = StreamingPlayer(on_audio_level=self.on_audio_level)
+        if current_task is not None:
+            turn.tts_task = current_task
+        player = StreamingPlayer(on_audio_level=lambda level: self._emit_audio_level_for_turn(turn, level))
         turn.playback = player
 
         if self.state_machine.state == State.THINKING:
-            self.state_machine.tts_ready()
+            self._transition_for_turn(turn, self.state_machine.tts_ready)
 
-        if self.on_pipeline_event:
-            self.on_pipeline_event("tts", "started", {})
+        self._emit_pipeline_event_for_turn(turn, "tts", "started", {})
 
         stop_event = threading.Event()
         self._playback_stop_event = stop_event
+        turn.playback_stop_event = stop_event
 
         playback_started = False
 
@@ -1410,13 +1576,14 @@ class Orchestrator:
             clean_text = self._clean_markdown_for_tts(text)
             self._latency_mark("tts_request_start", chars=len(clean_text))
             async for pcm_chunk in self.tts.stream_pcm(clean_text):
-                if turn.is_cancelled() or stop_event.is_set():
+                if not self._is_active_turn(turn) or stop_event.is_set():
                     break
                 
                 if self._output_audio_bytes is None:
                     self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
 
-                await player.enqueue(pcm_chunk)
+                if self._is_active_turn(turn):
+                    await player.enqueue(pcm_chunk)
                 
                 if self._output_audio_bytes is None:
                     self._output_audio_bytes = pcm_chunk
@@ -1426,10 +1593,10 @@ class Orchestrator:
                 if not playback_started:
                     playback_started = True
                     if self.state_machine.state == State.PREPARING_AUDIO:
-                        self.state_machine.playback_started()
+                        self._transition_for_turn(turn, self.state_machine.playback_started)
                     self._latency_mark("playback_start")
 
-            if not (turn.is_cancelled() or stop_event.is_set()):
+            if self._is_active_turn(turn) and not stop_event.is_set():
                 player.signal_end()
                 await player.wait_drained()
 
@@ -1439,81 +1606,96 @@ class Orchestrator:
         finally:
             if self._playback_stop_event is stop_event:
                 self._playback_stop_event = None
+            if turn.playback_stop_event is stop_event:
+                turn.playback_stop_event = None
             player.close()
             if turn.playback is player:
                 turn.playback = None
+            if current_task is not None and turn.tts_task is current_task:
+                turn.tts_task = None
 
-            if turn.is_cancelled() or stop_event.is_set():
+            if not self._is_active_turn(turn) or stop_event.is_set():
                 self._finish_barge_in()
             else:
-                if self.on_pipeline_event:
-                    self.on_pipeline_event("tts", "completed", {})
+                self._emit_pipeline_event_for_turn(turn, "tts", "completed", {})
                 if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-                    self.state_machine.audio_done()
+                    self._transition_for_turn(turn, self.state_machine.audio_done)
 
     async def speak_streaming(
         self,
         turn: TurnContext,
         text_stream: AsyncIterator[str],
     ) -> None:
-        if turn.is_cancelled():
+        if not self._is_active_turn(turn):
             return
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            turn.tts_task = current_task
 
         self._barge_in_requested = False
         self._barge_in_handled = False
 
-        if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
-            # Fallback to non-realtime play
-            full_text = ""
-            async for delta in text_stream:
-                full_text += delta
-            clean_text = self._clean_markdown_for_tts(full_text)
-            if clean_text:
-                if self.state_machine.state == State.THINKING:
-                    self.state_machine.tts_ready()
-                if self.on_pipeline_event:
-                    self.on_pipeline_event("tts", "started", {})
+        try:
+            if not isinstance(self.tts, RealtimeTTSAdapter) or not hasattr(self.tts, "stream_pcm"):
+                # Fallback to non-realtime play
+                full_text = ""
+                async for delta in text_stream:
+                    if not self._is_active_turn(turn):
+                        break
+                    full_text += delta
+                clean_text = self._clean_markdown_for_tts(full_text)
+                if clean_text and self._is_active_turn(turn):
+                    if self.state_machine.state == State.THINKING:
+                        self._transition_for_turn(turn, self.state_machine.tts_ready)
+                    self._emit_pipeline_event_for_turn(turn, "tts", "started", {})
 
-                self._latency_mark("tts_request_start", chars=len(clean_text))
-                audio = await self.tts.synthesize(clean_text)
-                interrupted = False
-                if audio:
-                    self._latency_mark("tts_first_audio", bytes=len(audio))
-                    self._output_audio_bytes = audio
-                    if self._play is not None:
-                        self.state_machine.playback_started()
-                        self._latency_mark("playback_start")
-                        stop_event = threading.Event()
-                        self._playback_stop_event = stop_event
-                        try:
-                            await asyncio.to_thread(self._play_audio_blocking, audio, stop_event)
-                        finally:
-                            if self._playback_stop_event is stop_event:
-                                self._playback_stop_event = None
-                        interrupted = stop_event.is_set()
-                        self._latency_mark("playback_done", interrupted=interrupted)
+                    self._latency_mark("tts_request_start", chars=len(clean_text))
+                    audio = await self.tts.synthesize(clean_text)
+                    interrupted = False
+                    if audio and self._is_active_turn(turn):
+                        self._latency_mark("tts_first_audio", bytes=len(audio))
+                        self._output_audio_bytes = audio
+                        if self._play is not None:
+                            self._transition_for_turn(turn, self.state_machine.playback_started)
+                            self._latency_mark("playback_start")
+                            stop_event = threading.Event()
+                            self._playback_stop_event = stop_event
+                            turn.playback_stop_event = stop_event
+                            try:
+                                await asyncio.to_thread(self._play_audio_blocking, audio, stop_event, turn)
+                            finally:
+                                if self._playback_stop_event is stop_event:
+                                    self._playback_stop_event = None
+                                if turn.playback_stop_event is stop_event:
+                                    turn.playback_stop_event = None
+                            interrupted = stop_event.is_set()
+                            self._latency_mark("playback_done", interrupted=interrupted)
 
-                if interrupted:
-                    self._finish_barge_in()
-                    return
+                    if interrupted:
+                        self._finish_barge_in()
+                        return
 
-                if self.on_pipeline_event:
-                    self.on_pipeline_event("tts", "completed", {})
-                if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-                    self.state_machine.audio_done()
-            return
+                    self._emit_pipeline_event_for_turn(turn, "tts", "completed", {})
+                    if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
+                        self._transition_for_turn(turn, self.state_machine.audio_done)
+                return
+        finally:
+            if current_task is not None and turn.tts_task is current_task:
+                turn.tts_task = None
 
-        player = StreamingPlayer(on_audio_level=self.on_audio_level)
+        if current_task is not None:
+            turn.tts_task = current_task
+        player = StreamingPlayer(on_audio_level=lambda level: self._emit_audio_level_for_turn(turn, level))
         turn.playback = player
 
         if self.state_machine.state == State.THINKING:
-            self.state_machine.tts_ready()
+            self._transition_for_turn(turn, self.state_machine.tts_ready)
 
-        if self.on_pipeline_event:
-            self.on_pipeline_event("tts", "started", {})
+        self._emit_pipeline_event_for_turn(turn, "tts", "started", {})
 
         stop_event = threading.Event()
         self._playback_stop_event = stop_event
+        turn.playback_stop_event = stop_event
 
         segmenter = TextSegmenter()
         playback_started = False
@@ -1521,11 +1703,11 @@ class Orchestrator:
 
         try:
             async for delta in text_stream:
-                if turn.is_cancelled() or stop_event.is_set():
+                if not self._is_active_turn(turn) or stop_event.is_set():
                     break
 
                 for segment in segmenter.push(delta):
-                    if turn.is_cancelled() or stop_event.is_set():
+                    if not self._is_active_turn(turn) or stop_event.is_set():
                         break
                     if not segment.strip():
                         continue
@@ -1539,13 +1721,14 @@ class Orchestrator:
                         tts_request_started = True
 
                     async for pcm_chunk in self.tts.stream_pcm(clean_segment):
-                        if turn.is_cancelled() or stop_event.is_set():
+                        if not self._is_active_turn(turn) or stop_event.is_set():
                             break
                         
                         if self._output_audio_bytes is None:
                             self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
 
-                        await player.enqueue(pcm_chunk)
+                        if self._is_active_turn(turn):
+                            await player.enqueue(pcm_chunk)
                         
                         if self._output_audio_bytes is None:
                             self._output_audio_bytes = pcm_chunk
@@ -1555,13 +1738,13 @@ class Orchestrator:
                         if not playback_started:
                             playback_started = True
                             if self.state_machine.state == State.PREPARING_AUDIO:
-                                self.state_machine.playback_started()
+                                self._transition_for_turn(turn, self.state_machine.playback_started)
                             self._latency_mark("playback_start")
 
             # Flush any remaining segments
-            if not (turn.is_cancelled() or stop_event.is_set()):
+            if self._is_active_turn(turn) and not stop_event.is_set():
                 for segment in segmenter.flush():
-                    if turn.is_cancelled() or stop_event.is_set():
+                    if not self._is_active_turn(turn) or stop_event.is_set():
                         break
                     if not segment.strip():
                         continue
@@ -1575,13 +1758,14 @@ class Orchestrator:
                         tts_request_started = True
 
                     async for pcm_chunk in self.tts.stream_pcm(clean_segment):
-                        if turn.is_cancelled() or stop_event.is_set():
+                        if not self._is_active_turn(turn) or stop_event.is_set():
                             break
                         
                         if self._output_audio_bytes is None:
                             self._latency_mark("tts_first_audio", bytes=len(pcm_chunk))
 
-                        await player.enqueue(pcm_chunk)
+                        if self._is_active_turn(turn):
+                            await player.enqueue(pcm_chunk)
                         
                         if self._output_audio_bytes is None:
                             self._output_audio_bytes = pcm_chunk
@@ -1591,10 +1775,10 @@ class Orchestrator:
                         if not playback_started:
                             playback_started = True
                             if self.state_machine.state == State.PREPARING_AUDIO:
-                                self.state_machine.playback_started()
+                                self._transition_for_turn(turn, self.state_machine.playback_started)
                             self._latency_mark("playback_start")
 
-            if not (turn.is_cancelled() or stop_event.is_set()):
+            if self._is_active_turn(turn) and not stop_event.is_set():
                 player.signal_end()
                 await player.wait_drained()
 
@@ -1604,17 +1788,20 @@ class Orchestrator:
         finally:
             if self._playback_stop_event is stop_event:
                 self._playback_stop_event = None
+            if turn.playback_stop_event is stop_event:
+                turn.playback_stop_event = None
             player.close()
             if turn.playback is player:
                 turn.playback = None
+            if current_task is not None and turn.tts_task is current_task:
+                turn.tts_task = None
 
-            if turn.is_cancelled() or stop_event.is_set():
+            if not self._is_active_turn(turn) or stop_event.is_set():
                 self._finish_barge_in()
             else:
-                if self.on_pipeline_event:
-                    self.on_pipeline_event("tts", "completed", {})
+                self._emit_pipeline_event_for_turn(turn, "tts", "completed", {})
                 if self.state_machine.state in (State.PREPARING_AUDIO, State.SPEAKING):
-                    self.state_machine.audio_done()
+                    self._transition_for_turn(turn, self.state_machine.audio_done)
 
     async def _speak(self, text: str) -> None:
         if self._current_turn is None:
@@ -1627,34 +1814,66 @@ class Orchestrator:
         if self.conversation_mode_active:
             self.start_auto_listening()
 
-    def _play_audio_blocking(self, audio: bytes, stop_event: threading.Event) -> None:
+    def _play_audio_blocking(
+        self,
+        audio: bytes,
+        stop_event: threading.Event,
+        turn: TurnContext | None = None,
+    ) -> None:
         if self._play is None:
             return
+        on_audio_level = (
+            (lambda level: self._emit_audio_level_for_turn(turn, level))
+            if turn is not None
+            else self.on_audio_level
+        )
         try:
             self._play(
                 audio,
-                on_audio_level=self.on_audio_level,
+                on_audio_level=on_audio_level,
                 stop_event=stop_event,
             )
         except TypeError:
             try:
-                self._play(audio, on_audio_level=self.on_audio_level)
+                self._play(audio, on_audio_level=on_audio_level)
             except TypeError:
                 self._play(audio)
 
     def request_barge_in(self) -> bool:
-        if self.state_machine.state not in (State.PREPARING_AUDIO, State.SPEAKING) and self._playback_stop_event is None:
+        cancellable_state = self.state_machine.state in (
+            State.THINKING,
+            State.PREPARING_AUDIO,
+            State.SPEAKING,
+        )
+        if not cancellable_state and self._playback_stop_event is None and self._current_turn is None:
             return False
 
-        self._latency_mark("barge_in_detected")
+        return self.cancel_current_turn("barge_in")
+
+    def cancel_current_turn(self, reason: str = "cancelled") -> bool:
+        turn = self._current_turn
+        if (
+            turn is None
+            and self._playback_stop_event is None
+            and self.state_machine.state not in (State.THINKING, State.PREPARING_AUDIO, State.SPEAKING)
+        ):
+            return False
+
+        if reason == "barge_in":
+            self._latency_mark("barge_in_detected")
         self._latency_mark("cancel_start")
+        self._latency_mark("turn_cancelled", reason=reason)
         self._latency_metadata(cancelled=True)
         self._barge_in_requested = True
+
         if self._playback_stop_event is not None:
             self._playback_stop_event.set()
 
-        if self._current_turn is not None:
-            self._current_turn.cancel()
+        if turn is not None:
+            turn.cancel(reason)
+
+        if self.state_machine.state in (State.THINKING, State.PREPARING_AUDIO, State.SPEAKING):
+            self.state_machine.force_idle()
 
         loop = self._loop
         if loop is not None and loop.is_running():
@@ -2050,8 +2269,8 @@ class Orchestrator:
             if self._early_intent_executed:
                 self._latency_mark("stt_skipped_early_intent")
                 partial_text = getattr(self, "_last_partial_text", "") or ""
-                if self.on_user_final_transcript and partial_text:
-                    self.on_user_final_transcript(partial_text)
+                if partial_text:
+                    self._emit_user_final_for_turn(self._current_turn, partial_text)
                 if self.on_pipeline_event:
                     self.on_pipeline_event("stt", "skipped_early_intent", {})
                 # Early intent already spoke a canned reply; return to listening
