@@ -15,6 +15,17 @@ BROWSER_TOOL_ORDER = [
     "web_search",
 ]
 
+WHATSAPP_TOOL_ORDER = [
+    "whatsapp_open",
+    "whatsapp_find_chat",
+    "whatsapp_draft_message",
+    "whatsapp_send_message",
+]
+
+
+def _is_whatsapp_turn(text: str) -> bool:
+    return any(k in text for k in ("whatsapp", "whats app", "web whatsapp", "web.whatsapp"))
+
 
 class ToolSelector:
     """
@@ -32,6 +43,10 @@ class ToolSelector:
         """
         text = transcript.lower().strip()
         selected: set[str] = set()
+
+        if _is_whatsapp_turn(text):
+            order = [*BROWSER_TOOL_ORDER, *WHATSAPP_TOOL_ORDER]
+            return [tool for tool in order if tool in self.all_tools]
 
         # 1. Base tools on IntentCategory
         if category == IntentCategory.LOCAL_SYSTEM:
@@ -78,7 +93,7 @@ class ToolSelector:
             selected.update(["set_volume", "get_volume", "set_muted"])
         if any(k in text for k in ("brightness", "kecerahan", "redup")):
             selected.update(["set_brightness", "get_brightness"])
-        if any(k in text for k in ("browser", "chrome", "safari", "website", "cari di web", "google", "web")):
+        if any(k in text for k in ("browser", "brave", "chrome", "safari", "website", "cari di web", "google", "web")):
             selected.update(BROWSER_TOOL_ORDER)
 
         # Filter the selected set to tools that are actually enabled in the workspace

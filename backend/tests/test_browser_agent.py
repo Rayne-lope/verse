@@ -7,6 +7,10 @@ from verse.tools.builtin.browser import (
     browser_input,
     browser_scroll,
     browser_go_back,
+    whatsapp_open,
+    whatsapp_find_chat,
+    whatsapp_draft_message,
+    whatsapp_send_message,
 )
 
 @pytest.fixture(autouse=True)
@@ -176,3 +180,127 @@ def test_browser_go_back():
         res = browser_go_back()
         assert "Successfully navigated back" in res
         mock_page.go_back.assert_called_once_with(wait_until="domcontentloaded")
+
+
+def test_whatsapp_open_detects_login_required():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = "Use WhatsApp on your computer\nScan this QR code"
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = whatsapp_open()
+        assert "login is required" in res
+        mock_page.goto.assert_called_once_with(
+            "https://web.whatsapp.com/",
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+
+
+def test_whatsapp_open_detects_ready_state():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = "Chats\nSearch or start new chat"
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = whatsapp_open()
+        assert "open and ready" in res
+
+
+def test_whatsapp_find_chat_searches_and_opens_match():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://web.whatsapp.com/"
+    mock_page.evaluate.return_value = "Chats\nSearch or start new chat"
+    search_locator = MagicMock()
+    mock_page.locator.return_value.first = search_locator
+    chat_locator = MagicMock()
+    mock_page.get_by_text.return_value.first = chat_locator
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = whatsapp_find_chat("Ridho Maulana")
+        assert "Opened WhatsApp chat with Ridho Maulana" in res
+        search_locator.fill.assert_called_once_with("Ridho Maulana", timeout=7000)
+        chat_locator.click.assert_called_once_with(timeout=8000)
+
+
+def test_whatsapp_draft_message_fills_compose_without_sending():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://web.whatsapp.com/"
+    mock_page.evaluate.return_value = "Chats\nSearch or start new chat"
+    search_wrapper = MagicMock()
+    search_locator = MagicMock()
+    search_wrapper.first = search_locator
+    compose_wrapper = MagicMock()
+    compose_locator = MagicMock()
+    compose_wrapper.first = compose_locator
+    mock_page.locator.side_effect = [search_wrapper, compose_wrapper]
+    mock_page.get_by_text.return_value.first = MagicMock()
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = whatsapp_draft_message("Ridho Maulana", "oke gas")
+        assert "Drafted WhatsApp message to Ridho Maulana" in res
+        compose_locator.fill.assert_called_once_with("oke gas", timeout=7000)
+        compose_locator.press.assert_not_called()
+
+
+def test_whatsapp_send_message_fills_compose_and_presses_enter():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://web.whatsapp.com/"
+    mock_page.evaluate.return_value = "Chats\nSearch or start new chat"
+    search_wrapper = MagicMock()
+    search_locator = MagicMock()
+    search_wrapper.first = search_locator
+    compose_wrapper = MagicMock()
+    compose_locator = MagicMock()
+    compose_wrapper.first = compose_locator
+    mock_page.locator.side_effect = [search_wrapper, compose_wrapper]
+    mock_page.get_by_text.return_value.first = MagicMock()
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = whatsapp_send_message("Ridho Maulana", "oke gas")
+        assert "Sent WhatsApp message to Ridho Maulana" in res
+        compose_locator.fill.assert_called_once_with("oke gas", timeout=7000)
+        compose_locator.press.assert_called_once_with("Enter", timeout=5000)

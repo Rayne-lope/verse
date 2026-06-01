@@ -84,6 +84,10 @@ class ToolsConfig:
             "browser_inspect",
             "browser_scroll",
             "browser_go_back",
+            "whatsapp_open",
+            "whatsapp_find_chat",
+            "whatsapp_draft_message",
+            "whatsapp_send_message",
         ]
     )
     spotify_client_id: str = ""

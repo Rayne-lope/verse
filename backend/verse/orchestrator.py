@@ -29,6 +29,8 @@ DEFAULT_SYSTEM_PROMPT = (
     "Available tools are authoritative: if a tool exists, you can use it. "
     "When the user asks to browse, open a web page, read a page, search in a browser, click/type/scroll, or summarize web content, "
     "you MUST use browser tools instead of claiming you cannot browse or read web pages. "
+    "When the user asks to use WhatsApp in Brave or a browser, use WhatsApp Web/browser tools, not iMessage. "
+    "Never say a WhatsApp message was sent unless whatsapp_send_message completed successfully in the current flow. "
     "CRITICAL: When the user asks to change or check system settings (volume, brightness, mute, dark mode, DND), "
     "you MUST always call the respective tool first in the same turn. "
     "NEVER guess, assume, or claim that a setting has changed or been checked unless you have successfully executed the tool. "
@@ -66,6 +68,14 @@ BROWSER_TURN_DIRECTIVE = (
     "call browser_navigate, browser_read_current, browser_inspect, browser_click, "
     "browser_input, browser_scroll, or browser_go_back before giving the final answer. "
     "Do not say you cannot browse, read pages, click, type, or summarize web content."
+)
+
+WHATSAPP_TURN_DIRECTIVE = (
+    "WhatsApp Web directive: use whatsapp_open, whatsapp_find_chat, "
+    "whatsapp_draft_message, or whatsapp_send_message for WhatsApp in Brave/browser. "
+    "These tools operate WhatsApp Web in the active Playwright browser, not iMessage. "
+    "Only send when the user explicitly asks to send/reply and both recipient and text "
+    "are known. If a tool fails or login is required, say that plainly."
 )
 
 BROWSER_RETRY_DIRECTIVE = (
@@ -129,20 +139,166 @@ def _looks_like_browser_refusal(text: str) -> bool:
     )
 
 
+def _normalize_turn_text(text: str) -> str:
+    normalized = text.lower().replace("web.whatsapp.com", "web whatsapp com")
+    normalized = re.sub(r"[^\w\s]", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _looks_like_whatsapp_web_turn(text: str) -> bool:
+    normalized = _normalize_turn_text(text)
+    return any(
+        marker in normalized
+        for marker in ("whatsapp", "whats app", "web whatsapp", "web whatsapp com")
+    )
+
+
+def _looks_like_browser_hosted_app_text(text: str) -> bool:
+    normalized = _normalize_turn_text(text)
+    if _looks_like_whatsapp_web_turn(normalized):
+        return True
+    browser_surface_terms = (
+        "di brave", "lewat brave", "pakai brave", "dengan brave",
+        "di browser", "lewat browser", "pakai browser", "di chrome", "di safari",
+    )
+    action_terms = (
+        "buka", "open", "buat", "balasan", "balas", "reply", "kirim", "send",
+        "pesan", "message", "chat", "ketik", "type", "klik", "click", "navigasi",
+    )
+    return any(term in normalized for term in browser_surface_terms) and any(
+        term in normalized for term in action_terms
+    )
+
+
+def _looks_like_whatsapp_send_claim(text: str) -> bool:
+    normalized = _normalize_turn_text(text)
+    if not normalized:
+        return False
+    send_claims = (
+        "aku kirim", "saya kirim", "kirim sekarang", "aku sudah kirim",
+        "saya sudah kirim", "sudah aku kirim", "sudah saya kirim", "terkirim",
+        "sent", "message sent", "pesan terkirim",
+    )
+    send_terms = ("whatsapp", "pesan", "message", "chat")
+    return any(claim in normalized for claim in send_claims) and any(
+        term in normalized for term in send_terms
+    )
+
+
+def _clean_whatsapp_fragment(value: str) -> str:
+    value = re.sub(r"[^\w\s.'-]", " ", value, flags=re.UNICODE)
+    value = re.sub(
+        r"\b(?:di|lewat|via|pakai|dengan)\s+(?:web\s+)?whatsapp\b.*$",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(
+        r"\b(?:di|lewat|via|pakai|dengan)\s+(?:brave|browser|chrome|safari)\b.*$",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(r"\b(?:aku|saya|dong|ya|nih|tolong)\b", " ", value, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", value).strip(" .'-")
+
+
+def _clean_whatsapp_message_fragment(value: str) -> str:
+    value = re.sub(r"[^\w\s.'!?,-]", " ", value, flags=re.UNICODE)
+    value = re.sub(
+        r"\b(?:di|lewat|via|pakai|dengan)\s+(?:web\s+)?whatsapp\b.*$",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(
+        r"\b(?:di|lewat|via|pakai|dengan)\s+(?:brave|browser|chrome|safari)\b.*$",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\s+", " ", value).strip(" .'-")
+
+
+def _extract_whatsapp_contact(transcript: str) -> str:
+    text = re.sub(r"\s+", " ", transcript).strip()
+    patterns = (
+        r"(?:balasan|balas|bales|reply)\s+(?:ke|kepada|untuk)?\s*(?P<contact>.+?)(?:\s+(?:di|lewat|via|pakai)\s+(?:web\s+)?whatsapp|\s+(?:bilang|katakan|berisi|dengan|isi|pesan(?:nya)?|text|teks)\b|$)",
+        r"(?:whatsapp|pesan|message|chat)\s+(?:ke|kepada|untuk)\s+(?P<contact>.+?)(?:\s+(?:di|lewat|via|pakai)\s+(?:web\s+)?whatsapp|\s+(?:di|lewat|via|pakai)\s+(?:brave|browser|chrome|safari)|\s+(?:bilang|katakan|berisi|dengan|isi|pesan(?:nya)?|text|teks)\b|$)",
+        r"(?:ke|kepada|untuk)\s+(?P<contact>.+?)(?:\s+(?:di|lewat|via|pakai)\s+(?:web\s+)?whatsapp|\s+(?:bilang|katakan|berisi|dengan|isi|pesan(?:nya)?|text|teks)\b|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            contact = _clean_whatsapp_fragment(match.group("contact"))
+            if contact:
+                return contact
+    return ""
+
+
+def _extract_whatsapp_message_text(transcript: str) -> str:
+    text = re.sub(r"\s+", " ", transcript).strip()
+    patterns = (
+        r"(?:bilang|katakan)\s+(?P<text>.+)$",
+        r"(?:berisi|isinya|isi pesan(?:nya)?|pesan(?:nya)?|text(?:nya)?|teks(?:nya)?|dengan(?: pesan)?)\s+(?P<text>.+)$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            message = _clean_whatsapp_message_fragment(match.group("text"))
+            if message:
+                return message
+    return ""
+
+
+def _has_whatsapp_send_intent(transcript: str) -> bool:
+    normalized = _normalize_turn_text(transcript)
+    return any(k in normalized for k in ("kirim", "send", "balas", "bales", "reply", "balasan"))
+
+
+def _is_whatsapp_open_request(transcript: str) -> bool:
+    normalized = _normalize_turn_text(transcript)
+    return _looks_like_whatsapp_web_turn(normalized) and any(k in normalized for k in ("buka", "open", "launch"))
+
+
+def _is_whatsapp_status_query(transcript: str) -> bool:
+    normalized = _normalize_turn_text(transcript)
+    return any(
+        marker in normalized
+        for marker in (
+            "mana", "gak kekirim", "ga kekirim", "nggak kekirim", "belum kekirim",
+            "kok belum", "sudah terkirim", "udah terkirim", "terkirim belum",
+        )
+    )
+
+
+def _whatsapp_send_succeeded(result: str) -> bool:
+    return result.strip().lower().startswith("sent whatsapp message")
+
+
 def _sanitize_history_for_context(
     history: list[dict[str, Any]],
     category: IntentCategory,
+    transcript: str = "",
 ) -> list[dict[str, Any]]:
+    context_is_browserish = category == IntentCategory.BROWSER or _looks_like_browser_hosted_app_text(transcript)
     cleaned: list[dict[str, Any]] = []
     for message in history:
         content = message.get("content")
         if isinstance(content, str) and _is_test_artifact_message(content):
             continue
         if (
-            category == IntentCategory.BROWSER
+            context_is_browserish
             and message.get("role") == "assistant"
             and isinstance(content, str)
             and _looks_like_browser_refusal(content)
+        ):
+            continue
+        if (
+            context_is_browserish
+            and message.get("role") == "assistant"
+            and isinstance(content, str)
+            and _looks_like_whatsapp_send_claim(content)
         ):
             continue
         cleaned.append(message)
@@ -159,8 +315,15 @@ def _browser_retry_message(transcript: str) -> dict[str, str]:
 def _synthesize_browser_tool_call(
     transcript: str,
     messages: list[dict[str, Any]] | None = None,
+    available_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     import urllib.parse
+
+    available = set(available_tools or [])
+    if _looks_like_whatsapp_web_turn(transcript):
+        if not available or "whatsapp_open" in available:
+            return _make_synthetic_tool_call("whatsapp_open", {})
+        return _make_synthetic_tool_call("browser_navigate", {"url": "https://web.whatsapp.com/"})
 
     url_match = re.search(
         r"(https?://[^\s]+|www\.[^\s]+|[\w.-]+\.(?:com|org|net|id|edu|gov|io)(?:/[^\s]*)?)",
@@ -211,6 +374,35 @@ def _make_synthetic_tool_call(name: str, arguments: dict[str, Any]) -> dict[str,
             "arguments": json.dumps(arguments, ensure_ascii=False),
         },
     }
+
+
+def _tool_names_from_definitions(tools: list[dict[str, Any]] | None) -> list[str]:
+    if not tools:
+        return []
+    names: list[str] = []
+    for tool in tools:
+        name = tool.get("function", {}).get("name")
+        if isinstance(name, str) and name:
+            names.append(name)
+    return names
+
+
+def _should_suppress_pre_tool_speech(
+    transcript: str,
+    category: IntentCategory,
+    tools: list[dict[str, Any]] | None,
+) -> bool:
+    tool_names = _tool_names_from_definitions(tools)
+    if not tool_names:
+        return False
+    has_action_tools = any(
+        name.startswith("browser_") or name.startswith("whatsapp_")
+        for name in tool_names
+    )
+    return has_action_tools and (
+        category == IntentCategory.BROWSER
+        or _looks_like_browser_hosted_app_text(transcript)
+    )
 
 
 def _extract_browser_topic(transcript: str) -> str:
@@ -269,10 +461,19 @@ def _parse_fact_list(text: str) -> list[str]:
 
 CANNED_ACKNOWLEDGEMENTS = {
     "web_search": "Bentar, aku cari dulu.",
+    "browser_navigate": "Bentar, aku buka halamannya dulu.",
+    "browser_read_current": "Bentar, aku baca halaman ini dulu.",
+    "browser_inspect": "Bentar, aku cek elemen halamannya dulu.",
+    "browser_click": "Bentar, aku klik dulu.",
+    "browser_input": "Bentar, aku isi dulu.",
     "get_weather": "Bentar, aku cek cuaca dulu.",
     "read_calendar": "Bentar, aku cek kalender dulu.",
     "create_event": "Bentar, aku buat acaranya dulu.",
     "send_message": "Bentar, aku kirim pesannya dulu.",
+    "whatsapp_open": "Bentar, aku buka WhatsApp Web dulu.",
+    "whatsapp_find_chat": "Bentar, aku cari chat WhatsApp-nya dulu.",
+    "whatsapp_draft_message": "Bentar, aku ketik dulu di WhatsApp.",
+    "whatsapp_send_message": "Bentar, aku kirim lewat WhatsApp dulu.",
     "run_shortcut": "Bentar, aku jalankan shortcut dulu.",
     "add_reminder": "Bentar, aku tambahkan pengingat dulu.",
     "complete_reminder": "Bentar, aku selesaikan pengingat dulu.",
@@ -412,6 +613,8 @@ class Orchestrator:
         self._current_latency_metrics: dict[str, Any] = {}
         self._latency_tracker: LatencyTracker | None = None
         self._last_latency_summary: dict[str, Any] | None = None
+        self._pending_whatsapp_task: dict[str, Any] | None = None
+        self._last_whatsapp_result: dict[str, Any] | None = None
         self._input_audio_bytes: bytes | None = None
         self._output_audio_bytes: bytes | None = None
         self._llm_messages: list[dict[str, Any]] = []
@@ -772,10 +975,21 @@ class Orchestrator:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None, IntentCategory]:
         category, _, _ = fast_intent_classifier(transcript)
         base_history = history if history else self._conversation_history
-        base_history = _sanitize_history_for_context(base_history, category)
+        context_text = " ".join(
+            [transcript]
+            + [
+                str(message.get("content", ""))
+                for message in base_history
+                if message.get("role") == "user"
+            ]
+        )
+        base_history = _sanitize_history_for_context(base_history, category, context_text)
         system_prompt = self._compose_system_prompt()
-        if category == IntentCategory.BROWSER:
+        browser_context = category == IntentCategory.BROWSER or _looks_like_browser_hosted_app_text(context_text)
+        if browser_context:
             system_prompt = f"{system_prompt}\n\n{BROWSER_TURN_DIRECTIVE}"
+        if _looks_like_whatsapp_web_turn(context_text):
+            system_prompt = f"{system_prompt}\n\n{WHATSAPP_TURN_DIRECTIVE}"
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             *base_history,
@@ -790,11 +1004,25 @@ class Orchestrator:
         transcript: str,
         history: list[dict[str, Any]],
     ) -> str:
+        turn = self._current_turn or TurnContext(id=self._current_turn_id or "turn_default")
+        self._current_turn = turn
+
+        whatsapp_reply = await self._try_whatsapp_task_flow(transcript, turn)
+        if whatsapp_reply is not None:
+            self._llm_messages = [{"role": "user", "content": transcript}]
+            self._llm_response = {"text": whatsapp_reply}
+            self._remember_turn(transcript, whatsapp_reply)
+            if not self._is_active_turn(turn):
+                return whatsapp_reply
+            self._emit_assistant_text_for_turn(turn, whatsapp_reply)
+            await self.speak_text_immediately(turn, whatsapp_reply)
+            if self.conversation_mode_active:
+                self.start_auto_listening()
+            return whatsapp_reply
+
         self._latency_mark("local_intent_start")
         local_reply = self._try_local_intent(transcript)
         self._latency_mark("local_intent_done", matched=local_reply is not None)
-        turn = self._current_turn or TurnContext(id=self._current_turn_id or "turn_default")
-        self._current_turn = turn
 
         if local_reply is not None:
             self._llm_messages = [{"role": "user", "content": transcript}]
@@ -815,6 +1043,8 @@ class Orchestrator:
         llm_first_token_seen = False
         browser_retry_attempted = False
         browser_fallback_used = False
+        browser_context = category == IntentCategory.BROWSER or _looks_like_browser_hosted_app_text(transcript)
+        suppress_pre_tool_text = _should_suppress_pre_tool_speech(transcript, category, tools)
 
         for _ in range(self.max_tool_iterations):
             if not llm_started:
@@ -826,6 +1056,7 @@ class Orchestrator:
                 messages,
                 tools,
                 llm_first_token_seen=llm_first_token_seen,
+                suppress_pre_tool_text=suppress_pre_tool_text,
             )
             llm_first_token_seen = llm_first_token_seen or result["first_token_seen"]
             speech_task = result["speech_task"]
@@ -842,7 +1073,7 @@ class Orchestrator:
 
             if not tool_calls:
                 if (
-                    category == IntentCategory.BROWSER
+                    browser_context
                     and tools
                     and _looks_like_browser_refusal(text)
                 ):
@@ -874,7 +1105,11 @@ class Orchestrator:
 
                     if not browser_fallback_used:
                         browser_fallback_used = True
-                        tool_call = _synthesize_browser_tool_call(transcript, messages)
+                        tool_call = _synthesize_browser_tool_call(
+                            transcript,
+                            messages,
+                            _tool_names_from_definitions(tools),
+                        )
                         messages.append(
                             {
                                 "role": "assistant",
@@ -896,6 +1131,27 @@ class Orchestrator:
                         )
                         continue
 
+                if browser_context and _looks_like_whatsapp_send_claim(text) and tool_count == 0:
+                    reply = await self._recover_or_block_whatsapp_claim(transcript, turn)
+                    self._llm_response = {"text": reply, "tool_calls": []}
+                    self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+                    if speech_task is not None:
+                        try:
+                            if turn.playback is not None:
+                                await turn.playback.clear()
+                        except Exception:
+                            pass
+                        if not speech_task.done():
+                            speech_task.cancel()
+                        try:
+                            await speech_task
+                        except asyncio.CancelledError:
+                            pass
+                    elif reply and self._is_active_turn(turn):
+                        self._emit_assistant_text_for_turn(turn, reply)
+                        await self.speak_text_immediately(turn, reply)
+                    break
+
                 reply = text
                 self._llm_response = {"text": reply, "tool_calls": []}
                 self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
@@ -904,6 +1160,9 @@ class Orchestrator:
                         await speech_task
                     except asyncio.CancelledError:
                         pass
+                elif reply and self._is_active_turn(turn):
+                    self._emit_assistant_text_for_turn(turn, reply)
+                    await self.speak_text_immediately(turn, reply)
                 break
 
             if speech_task is not None:
@@ -964,7 +1223,8 @@ class Orchestrator:
         self._llm_messages = messages
         self._latency_metadata(tool_count=tool_count)
         if self.debug_logger is not None and self._current_turn_id is not None:
-            self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
+            previous = int(self._current_latency_metrics.get("tool_ms", 0) or 0)
+            self._current_latency_metrics["tool_ms"] = previous + int(total_tool_ms * 1000)
 
         if self._is_active_turn(turn):
             self._remember_turn(transcript, reply)
@@ -979,6 +1239,7 @@ class Orchestrator:
         tools: list[dict[str, Any]] | None,
         *,
         llm_first_token_seen: bool,
+        suppress_pre_tool_text: bool = False,
     ) -> dict[str, Any]:
         sentinel = object()
         text_queue: asyncio.Queue[str | object] = asyncio.Queue()
@@ -1022,20 +1283,24 @@ class Orchestrator:
                             continue
 
                         text_parts.append(event.text)
-                        self._emit_assistant_text_for_turn(turn, "".join(text_parts))
+                        if not suppress_pre_tool_text:
+                            self._emit_assistant_text_for_turn(turn, "".join(text_parts))
 
                         if event.text.strip():
                             meaningful_text_seen = True
                             if not llm_first_token_seen and not first_token_marked:
                                 self._latency_mark("llm_first_token")
                                 first_token_marked = True
-                            first_text.set()
+                            if not suppress_pre_tool_text:
+                                first_text.set()
 
-                        if self._is_active_turn(turn):
+                        if self._is_active_turn(turn) and not suppress_pre_tool_text:
                             await text_queue.put(event.text)
                         continue
 
                     if event.type in ("tool_call_delta", "tool_call_done"):
+                        if suppress_pre_tool_text:
+                            text_parts.clear()
                         if meaningful_text_seen:
                             tool_started_after_text = True
                             if event.type == "tool_call_done" and event.tool_call:
@@ -1129,6 +1394,15 @@ class Orchestrator:
         yield LLMStreamEvent(type="done", raw=getattr(response, "raw", None))
 
     async def _respond(self, transcript: str, history: list[dict[str, Any]]) -> str:
+        whatsapp_reply = await self._try_whatsapp_task_flow(transcript)
+        if whatsapp_reply is not None:
+            self._llm_messages = [{"role": "user", "content": transcript}]
+            self._llm_response = {"text": whatsapp_reply}
+            self._remember_turn(transcript, whatsapp_reply)
+            if self.on_assistant_text:
+                self.on_assistant_text(whatsapp_reply)
+            return whatsapp_reply
+
         self._latency_mark("local_intent_start")
         local_reply = self._try_local_intent(transcript)
         self._latency_mark("local_intent_done", matched=local_reply is not None)
@@ -1147,6 +1421,7 @@ class Orchestrator:
         llm_first_token_seen = False
         browser_retry_attempted = False
         browser_fallback_used = False
+        browser_context = category == IntentCategory.BROWSER or _looks_like_browser_hosted_app_text(transcript)
         for _ in range(self.max_tool_iterations):
             if not llm_started:
                 self._latency_mark("llm_request_start")
@@ -1157,7 +1432,7 @@ class Orchestrator:
                 llm_first_token_seen = True
             if not response.tool_calls:
                 if (
-                    category == IntentCategory.BROWSER
+                    browser_context
                     and tools
                     and _looks_like_browser_refusal(response.text)
                 ):
@@ -1175,7 +1450,11 @@ class Orchestrator:
 
                     if not browser_fallback_used:
                         browser_fallback_used = True
-                        tool_call = _synthesize_browser_tool_call(transcript, messages)
+                        tool_call = _synthesize_browser_tool_call(
+                            transcript,
+                            messages,
+                            _tool_names_from_definitions(tools),
+                        )
                         messages.append(
                             {
                                 "role": "assistant",
@@ -1197,6 +1476,15 @@ class Orchestrator:
                             }
                         )
                         continue
+
+                if browser_context and _looks_like_whatsapp_send_claim(response.text) and tool_count == 0:
+                    reply = await self._recover_or_block_whatsapp_claim(transcript)
+                    self._llm_response = {
+                        "text": reply,
+                        "tool_calls": []
+                    }
+                    self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+                    break
 
                 reply = response.text.strip()
                 self._llm_response = {
@@ -1252,7 +1540,8 @@ class Orchestrator:
         self._llm_messages = messages
         self._latency_metadata(tool_count=tool_count)
         if self.debug_logger is not None and self._current_turn_id is not None:
-            self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
+            previous = int(self._current_latency_metrics.get("tool_ms", 0) or 0)
+            self._current_latency_metrics["tool_ms"] = previous + int(total_tool_ms * 1000)
 
         self._remember_turn(transcript, reply)
 
@@ -1349,6 +1638,191 @@ class Orchestrator:
                 self.store.prune_memories(max_count=self.config.memory.max_facts)
         except Exception as exc:
             logger.error(f"memory extraction failed: {exc}")
+
+    async def _execute_flow_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        turn: TurnContext | None = None,
+    ) -> tuple[dict[str, Any], str, float]:
+        import time
+
+        tool_call = _make_synthetic_tool_call(name, arguments or {})
+        if turn is not None:
+            result, duration = await self._run_tool_for_turn(turn, tool_call)
+        else:
+            start = time.time()
+            result = self._run_tool(tool_call)
+            duration = time.time() - start
+
+        if name.startswith("whatsapp_"):
+            self._last_whatsapp_result = {
+                "tool": name,
+                "arguments": arguments or {},
+                "result": result,
+                "sent": name == "whatsapp_send_message" and _whatsapp_send_succeeded(result),
+            }
+        if self.debug_logger is not None and self._current_turn_id is not None:
+            previous = int(self._current_latency_metrics.get("tool_ms", 0) or 0)
+            self._current_latency_metrics["tool_ms"] = previous + int(duration * 1000)
+        return tool_call, result, duration
+
+    def _pending_whatsapp_message_text(self, transcript: str) -> str:
+        if self._pending_whatsapp_task is None:
+            return ""
+        if _is_whatsapp_status_query(transcript) or _is_whatsapp_open_request(transcript):
+            return ""
+
+        explicit = _extract_whatsapp_message_text(transcript)
+        if explicit:
+            return explicit
+
+        category, _, _ = fast_intent_classifier(transcript)
+        if category not in (IntentCategory.UNKNOWN, IntentCategory.CHAT):
+            return ""
+
+        candidate = _clean_whatsapp_message_fragment(transcript)
+        if not candidate or len(candidate.split()) > 24:
+            return ""
+        return candidate
+
+    def _reply_for_whatsapp_tool(self, tool_name: str, result: str, contact: str | None = None) -> str:
+        lower = result.lower()
+        target = contact or "kontak itu"
+        if result.startswith("Failed") or result.startswith("Tool '"):
+            return f"Aku belum bisa menyelesaikan aksi WhatsApp-nya: {result}"
+
+        if tool_name == "whatsapp_open":
+            if "login is required" in lower:
+                return "WhatsApp Web sudah terbuka, tapi perlu login dulu. Scan QR code-nya dulu ya."
+            if "ready" in lower:
+                return "WhatsApp Web sudah terbuka dan siap."
+            return "WhatsApp Web sudah aku buka, tapi aku belum bisa memastikan status login-nya."
+
+        if "login is required" in lower:
+            return "WhatsApp Web perlu login dulu. Scan QR code-nya, lalu aku bisa lanjut."
+
+        if tool_name == "whatsapp_find_chat":
+            return f"Chat WhatsApp dengan {target} sudah aku buka."
+        if tool_name == "whatsapp_draft_message":
+            return f"Pesan ke {target} sudah aku ketik sebagai draft. Belum aku kirim."
+        if tool_name == "whatsapp_send_message":
+            if _whatsapp_send_succeeded(result):
+                return f"Sudah, pesan WhatsApp ke {target} aku kirim."
+            return f"Aku belum bisa memastikan pesan ke {target} terkirim: {result}"
+        return result
+
+    async def _send_pending_whatsapp_task(self, turn: TurnContext | None = None) -> str:
+        pending = self._pending_whatsapp_task or {}
+        contact = str(pending.get("contact") or "").strip()
+        text = str(pending.get("text") or "").strip()
+        if not contact or not text:
+            return "Aku belum punya kontak dan isi pesan WhatsApp yang lengkap."
+
+        _, result, _ = await self._execute_flow_tool(
+            "whatsapp_send_message",
+            {"contact": contact, "text": text},
+            turn,
+        )
+        if _whatsapp_send_succeeded(result):
+            self._pending_whatsapp_task = None
+        else:
+            self._pending_whatsapp_task = {
+                "channel": "whatsapp",
+                "contact": contact,
+                "text": text,
+                "send_requested": True,
+            }
+        return self._reply_for_whatsapp_tool("whatsapp_send_message", result, contact)
+
+    async def _recover_or_block_whatsapp_claim(
+        self,
+        transcript: str,
+        turn: TurnContext | None = None,
+    ) -> str:
+        if self._pending_whatsapp_task and self._pending_whatsapp_task.get("text"):
+            return await self._send_pending_whatsapp_task(turn)
+        if _looks_like_whatsapp_web_turn(transcript):
+            contact = _extract_whatsapp_contact(transcript)
+            text = _extract_whatsapp_message_text(transcript)
+            if contact and text and _has_whatsapp_send_intent(transcript):
+                self._pending_whatsapp_task = {
+                    "channel": "whatsapp",
+                    "contact": contact,
+                    "text": text,
+                    "send_requested": True,
+                }
+                return await self._send_pending_whatsapp_task(turn)
+        return "Aku belum menjalankan tool WhatsApp, jadi aku belum bisa bilang pesannya terkirim."
+
+    async def _try_whatsapp_task_flow(
+        self,
+        transcript: str,
+        turn: TurnContext | None = None,
+    ) -> str | None:
+        whatsappish = _looks_like_whatsapp_web_turn(transcript)
+        pending_text = self._pending_whatsapp_message_text(transcript)
+        has_pending = self._pending_whatsapp_task is not None
+        has_last = self._last_whatsapp_result is not None
+        status_query = _is_whatsapp_status_query(transcript) and (has_pending or has_last)
+
+        if not whatsappish and not pending_text and not status_query:
+            return None
+
+        if status_query:
+            last = self._last_whatsapp_result or {}
+            if last.get("sent"):
+                args = last.get("arguments") or {}
+                contact = str(args.get("contact") or "kontak itu")
+                return f"Terakhir, tool WhatsApp berhasil mengirim pesan ke {contact}."
+            if self._pending_whatsapp_task and self._pending_whatsapp_task.get("text"):
+                return await self._send_pending_whatsapp_task(turn)
+            return "Aku belum punya pesan WhatsApp lengkap yang bisa aku kirim ulang."
+
+        contact = _extract_whatsapp_contact(transcript)
+        message_text = _extract_whatsapp_message_text(transcript)
+        send_requested = _has_whatsapp_send_intent(transcript)
+
+        if not whatsappish and pending_text and self._pending_whatsapp_task is not None:
+            pending = self._pending_whatsapp_task
+            contact = str(pending.get("contact") or "").strip()
+            message_text = pending_text
+            send_requested = bool(pending.get("send_requested"))
+
+        if whatsappish and _is_whatsapp_open_request(transcript) and not contact:
+            _, result, _ = await self._execute_flow_tool("whatsapp_open", {}, turn)
+            return self._reply_for_whatsapp_tool("whatsapp_open", result)
+
+        if contact and not message_text:
+            self._pending_whatsapp_task = {
+                "channel": "whatsapp",
+                "contact": contact,
+                "text": "",
+                "send_requested": send_requested,
+            }
+            _, result, _ = await self._execute_flow_tool("whatsapp_open", {}, turn)
+            if "login is required" in result.lower():
+                return f"WhatsApp Web perlu login dulu. Setelah scan QR, pesan ke {contact} mau bilang apa?"
+            return f"Siap, WhatsApp Web aku buka. Pesan ke {contact} mau bilang apa?"
+
+        if contact and message_text:
+            self._pending_whatsapp_task = {
+                "channel": "whatsapp",
+                "contact": contact,
+                "text": message_text,
+                "send_requested": send_requested,
+            }
+            if send_requested:
+                return await self._send_pending_whatsapp_task(turn)
+
+            _, result, _ = await self._execute_flow_tool(
+                "whatsapp_draft_message",
+                {"contact": contact, "text": message_text},
+                turn,
+            )
+            return self._reply_for_whatsapp_tool("whatsapp_draft_message", result, contact)
+
+        return None
 
     def _try_local_intent(self, transcript: str) -> str | None:
         turn = self._current_turn

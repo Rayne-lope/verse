@@ -820,6 +820,79 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             parameters={"type": "object", "properties": {}},
             handler=browser.browser_go_back,
         ),
+        "whatsapp_open": Tool(
+            name="whatsapp_open",
+            description=(
+                "Open WhatsApp Web in the active Playwright browser session and report "
+                "whether WhatsApp Web is ready or login is required. This uses WhatsApp "
+                "Web in the browser, not iMessage."
+            ),
+            parameters={"type": "object", "properties": {}},
+            handler=browser.whatsapp_open,
+        ),
+        "whatsapp_find_chat": Tool(
+            name="whatsapp_find_chat",
+            description=(
+                "Find and open a chat in WhatsApp Web using the active Playwright browser. "
+                "This controls WhatsApp Web in the browser, not iMessage."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "contact": {
+                        "type": "string",
+                        "description": "The WhatsApp chat/contact name to open.",
+                    }
+                },
+                "required": ["contact"],
+            },
+            handler=browser.whatsapp_find_chat,
+        ),
+        "whatsapp_draft_message": Tool(
+            name="whatsapp_draft_message",
+            description=(
+                "Open a WhatsApp Web chat and fill the compose box without sending. "
+                "This uses WhatsApp Web in the active Playwright browser, not iMessage."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "contact": {
+                        "type": "string",
+                        "description": "The WhatsApp chat/contact name.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The message body to draft without sending.",
+                    },
+                },
+                "required": ["contact", "text"],
+            },
+            handler=browser.whatsapp_draft_message,
+        ),
+        "whatsapp_send_message": Tool(
+            name="whatsapp_send_message",
+            description=(
+                "Send a WhatsApp Web message in the active Playwright browser only when "
+                "the current user task explicitly asks to send and both contact and text "
+                "are known. This uses WhatsApp Web in the browser, not iMessage."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "contact": {
+                        "type": "string",
+                        "description": "The WhatsApp chat/contact name.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "The message body to send.",
+                    },
+                },
+                "required": ["contact", "text"],
+            },
+            handler=browser.whatsapp_send_message,
+        ),
     }
 
     names = enabled if enabled is not None else list(catalog)

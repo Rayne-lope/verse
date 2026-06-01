@@ -56,6 +56,13 @@ def test_classifier_web_action_beats_app_launch():
     cat, _, _ = fast_intent_classifier("buka brave dan cari mobil listrik terbaru")
     assert cat == IntentCategory.BROWSER
 
+    # WhatsApp in Brave is browser automation, not a plain app launch/iMessage.
+    cat, _, _ = fast_intent_classifier("Tolong buka WhatsApp di Brave")
+    assert cat == IntentCategory.BROWSER
+
+    cat, _, _ = fast_intent_classifier("Tolong buat balasan ke Ridho Maulana di WhatsApp aku di Brave")
+    assert cat == IntentCategory.BROWSER
+
     # Standalone web search -> BROWSER
     cat, _, _ = fast_intent_classifier("cari fakta menarik tentang antartika")
     assert cat == IntentCategory.BROWSER
@@ -111,6 +118,16 @@ def test_selector_includes_full_browser_toolset():
     default_selected = default_selector.select("buka wikipedia dan rangkum artikelnya", IntentCategory.BROWSER)
     assert "browser_read_current" in default_selected
     assert "browser_go_back" in default_selected
+
+    whatsapp_selected = default_selector.select("Tolong buka WhatsApp di Brave", IntentCategory.BROWSER)
+    assert "browser_navigate" in whatsapp_selected
+    assert "browser_go_back" in whatsapp_selected
+    assert "whatsapp_open" in whatsapp_selected
+    assert "whatsapp_find_chat" in whatsapp_selected
+    assert "whatsapp_draft_message" in whatsapp_selected
+    assert "whatsapp_send_message" in whatsapp_selected
+    assert "open_app" not in whatsapp_selected
+    assert "open_url" not in whatsapp_selected
 
     # Non-browser categories keep the tight 5-tool cap.
     capped = selector.select("buka spotify, setel musik, pengingat, pesan, catatan", IntentCategory.CHAT)

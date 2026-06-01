@@ -3,7 +3,7 @@ import threading
 from unittest.mock import patch
 
 from verse.config import AppConfig, DebugConfig, IntentConfig, MemoryConfig, ToolsConfig
-from verse.llm.base import LLMResponse
+from verse.llm.base import LLMResponse, LLMStreamEvent
 from verse.orchestrator import Orchestrator
 from verse.state import State, StateChangedEvent, StateMachine, StateTrigger
 from verse.tools.registry import Tool, ToolRegistry
@@ -51,6 +51,20 @@ def _registry_with(name, handler):
             handler=handler,
         )
     )
+    return registry
+
+
+def _registry_with_handlers(handlers):
+    registry = ToolRegistry()
+    for name, handler in handlers.items():
+        registry.register(
+            Tool(
+                name=name,
+                description="test tool",
+                parameters={"type": "object", "properties": {}},
+                handler=handler,
+            )
+        )
     return registry
 
 
@@ -255,6 +269,220 @@ def test_browser_refusal_fallback_executes_playwright_tool():
     final_messages, final_tools = llm.requests[-1]
     assert final_tools is None
     assert any(m.get("role") == "tool" for m in final_messages)
+
+
+def test_whatsapp_open_turn_uses_tool_without_llm():
+    calls = []
+    registry = _registry_with_handlers({
+        "whatsapp_open": lambda: calls.append("open") or "WhatsApp Web is open and ready.",
+    })
+    llm = FakeLLM([])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_open"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond("Tolong buka WhatsApp di Brave", []))
+
+    assert "WhatsApp Web sudah terbuka" in reply
+    assert calls == ["open"]
+    assert llm.requests == []
+
+
+def test_whatsapp_multiturn_reply_asks_then_sends():
+    calls = []
+
+    def whatsapp_open():
+        calls.append(("open", {}))
+        return "WhatsApp Web is open and ready."
+
+    def whatsapp_send_message(contact, text):
+        calls.append(("send", {"contact": contact, "text": text}))
+        return f"Sent WhatsApp message to {contact}: {text}"
+
+    registry = _registry_with_handlers({
+        "whatsapp_open": whatsapp_open,
+        "whatsapp_send_message": whatsapp_send_message,
+    })
+    llm = FakeLLM([])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_open", "whatsapp_send_message"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    first = asyncio.run(
+        orch._respond("Tolong buat balasan ke Ridho Maulana di WhatsApp aku di Brave", [])
+    )
+    second = asyncio.run(orch._respond("bilang oke gas", []))
+
+    assert "Pesan ke Ridho Maulana mau bilang apa" in first
+    assert second == "Sudah, pesan WhatsApp ke Ridho Maulana aku kirim."
+    assert calls == [
+        ("open", {}),
+        ("send", {"contact": "Ridho Maulana", "text": "oke gas"}),
+    ]
+    assert llm.requests == []
+
+
+def test_whatsapp_status_query_recovers_pending_send():
+    calls = []
+
+    def whatsapp_send_message(contact, text):
+        calls.append((contact, text))
+        return f"Sent WhatsApp message to {contact}: {text}"
+
+    registry = _registry_with_handlers({"whatsapp_send_message": whatsapp_send_message})
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        FakeLLM([]),
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_send_message"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+    orch._pending_whatsapp_task = {
+        "channel": "whatsapp",
+        "contact": "Ridho Maulana",
+        "text": "oke gas",
+        "send_requested": True,
+    }
+
+    reply = asyncio.run(orch._respond("Mana gak kekirim?", []))
+
+    assert reply == "Sudah, pesan WhatsApp ke Ridho Maulana aku kirim."
+    assert calls == [("Ridho Maulana", "oke gas")]
+
+
+def test_whatsapp_history_sanitizes_denials_and_fake_send_claims():
+    registry = _registry_with("whatsapp_open", lambda: "WhatsApp Web is open and ready.")
+    llm = FakeLLM([LLMResponse(text="Aku cek WhatsApp Web.", tool_calls=[])])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_open"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+    history = [
+        {"role": "user", "content": "Tolong buka WhatsApp di Brave"},
+        {
+            "role": "assistant",
+            "content": "Aku bisa buka Brave, tapi nggak bisa navigasi di dalamnya.",
+        },
+        {"role": "assistant", "content": "Oke, aku kirim sekarang pesan WhatsApp itu."},
+        {"role": "assistant", "content": "Mocked LLM reply"},
+    ]
+
+    asyncio.run(orch._respond("Tolong cek status WhatsApp di Brave", history))
+
+    first_messages, first_tools = llm.requests[0]
+    contents = [str(m.get("content")) for m in first_messages]
+    assert all("nggak bisa navigasi" not in content for content in contents)
+    assert all("aku kirim sekarang" not in content for content in contents)
+    assert all("Mocked LLM reply" not in content for content in contents)
+    assert first_tools is not None
+    assert [tool["function"]["name"] for tool in first_tools] == ["whatsapp_open"]
+
+
+def test_whatsapp_fake_send_claim_without_tool_is_blocked():
+    registry = _registry_with("whatsapp_open", lambda: "WhatsApp Web is open and ready.")
+    llm = FakeLLM([
+        LLMResponse(text="Oke, aku kirim pesan WhatsApp itu sekarang.", tool_calls=[]),
+    ])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_open"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond("Tolong cek status WhatsApp di Brave", []))
+
+    assert reply == "Aku belum menjalankan tool WhatsApp, jadi aku belum bisa bilang pesannya terkirim."
+
+
+def test_browser_streaming_suppresses_long_pre_tool_text():
+    calls = []
+    tool_call = {
+        "id": "call_browser",
+        "type": "function",
+        "function": {
+            "name": "browser_navigate",
+            "arguments": '{"url": "https://id.wikipedia.org/wiki/Samudra"}',
+        },
+    }
+
+    class StreamingBrowserLLM:
+        def __init__(self):
+            self.requests = []
+
+        async def stream_chat(self, messages, tools=None):
+            self.requests.append((messages, tools))
+            if len(self.requests) == 1:
+                yield LLMStreamEvent(type="text_delta", text="Aku akan buka Brave lalu membaca panjang dulu.")
+                yield LLMStreamEvent(type="tool_call_done", tool_call=tool_call)
+                yield LLMStreamEvent(type="done")
+            else:
+                yield LLMStreamEvent(type="text_delta", text="Samudra menutupi sebagian besar Bumi.")
+                yield LLMStreamEvent(type="done")
+
+    registry = _registry_with(
+        "browser_navigate",
+        lambda url: calls.append(url) or "Page Content:\nSamudra menutupi 71% Bumi.",
+    )
+    tts = FakeTTS()
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        StreamingBrowserLLM(),
+        tts,
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_navigate"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond_and_speak_streaming("buka Wikipedia tentang Samudra", []))
+
+    assert reply == "Samudra menutupi sebagian besar Bumi."
+    assert calls == ["https://id.wikipedia.org/wiki/Samudra"]
+    spoken = " ".join(tts.spoken)
+    assert "membaca panjang dulu" not in spoken
+    assert "Bentar, aku buka halamannya dulu." in tts.spoken
+    assert "Samudra menutupi sebagian besar Bumi." in tts.spoken
 
 
 def test_idle_state_does_not_close_browser_session():

@@ -19,6 +19,23 @@ _browser_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="verse-
 
 _T = TypeVar("_T")
 
+WHATSAPP_WEB_URL = "https://web.whatsapp.com/"
+WHATSAPP_SEARCH_SELECTORS = (
+    "div[contenteditable='true'][data-tab='3']",
+    "div[role='textbox'][aria-label*='Search']",
+    "div[role='textbox'][aria-label*='Cari']",
+    "div[contenteditable='true'][aria-label*='Search']",
+    "div[contenteditable='true'][aria-label*='Cari']",
+)
+WHATSAPP_COMPOSE_SELECTORS = (
+    "footer div[contenteditable='true'][role='textbox']",
+    "footer div[contenteditable='true']",
+    "div[role='textbox'][aria-label*='Type a message']",
+    "div[role='textbox'][aria-label*='Ketik pesan']",
+    "div[contenteditable='true'][aria-label*='Type a message']",
+    "div[contenteditable='true'][aria-label*='Ketik pesan']",
+)
+
 
 def _run_on_browser_thread(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     """Execute a browser operation on the single dedicated Playwright thread."""
@@ -84,6 +101,78 @@ def _extract_visible_text(page: Page) -> str:
     if len(cleaned) > 8000:
         cleaned = cleaned[:8000] + "\n\n[Content truncated...]"
     return cleaned
+
+
+def _normalized_visible_text(page: Page) -> str:
+    try:
+        return _extract_visible_text(page).lower()
+    except Exception:
+        return ""
+
+
+def _whatsapp_page_state(page: Page) -> str:
+    text = _normalized_visible_text(page)
+    login_markers = (
+        "scan this qr code",
+        "use whatsapp on your computer",
+        "link a device",
+        "pindai kode qr",
+        "tautkan perangkat",
+        "gunakan whatsapp di komputer",
+    )
+    ready_markers = (
+        "search or start new chat",
+        "cari atau mulai chat",
+        "type a message",
+        "ketik pesan",
+        "chats",
+        "chat",
+    )
+    if any(marker in text for marker in login_markers):
+        return "login_required"
+    if any(marker in text for marker in ready_markers):
+        return "ready"
+    return "unknown"
+
+
+def _ensure_whatsapp_page() -> tuple[Page, str]:
+    page = _ensure_browser()
+    current_url = (getattr(page, "url", "") or "").lower()
+    if "web.whatsapp.com" not in current_url:
+        page.goto(WHATSAPP_WEB_URL, wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(2500)
+    return page, _whatsapp_page_state(page)
+
+
+def _fill_first_available(page: Page, selectors: tuple[str, ...], text: str, *, timeout: int = 5000) -> tuple[str, Any]:
+    last_error: Exception | None = None
+    for selector in selectors:
+        try:
+            locator = page.locator(selector).first
+            locator.click(timeout=timeout)
+            locator.fill(text, timeout=timeout)
+            return selector, locator
+        except Exception as exc:
+            last_error = exc
+    raise RuntimeError(f"No matching input was available: {last_error}")
+
+
+def _click_matching_chat(page: Page, contact: str) -> None:
+    try:
+        page.get_by_text(contact, exact=False).first.click(timeout=8000)
+        return
+    except Exception:
+        pass
+
+    safe_contact = contact.replace("\\", "\\\\").replace('"', '\\"')
+    page.locator(f'span[title="{safe_contact}"]').first.click(timeout=8000)
+
+
+def _press_enter(locator: Any, *, timeout: int = 5000) -> None:
+    try:
+        locator.press("Enter", timeout=timeout)
+    except TypeError:
+        locator.press("Enter")
 
 
 def _browser_navigate_impl(url: str) -> str:
@@ -328,6 +417,84 @@ def _browser_go_back_impl() -> str:
         return f"Failed to navigate back: {exc}"
 
 
+def _whatsapp_open_impl() -> str:
+    """Open WhatsApp Web and report whether the user is logged in."""
+    try:
+        page = _ensure_browser()
+        page.goto(WHATSAPP_WEB_URL, wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(2500)
+        state = _whatsapp_page_state(page)
+        if state == "login_required":
+            return "WhatsApp Web opened, but login is required. Please scan the QR code first."
+        if state == "ready":
+            return "WhatsApp Web is open and ready."
+        return "WhatsApp Web opened. I could not confirm whether it is ready yet."
+    except Exception as exc:
+        return f"Failed to open WhatsApp Web: {exc}"
+
+
+def _whatsapp_find_chat_impl(contact: str) -> str:
+    """Open a matching chat in WhatsApp Web."""
+    contact = (contact or "").strip()
+    if not contact:
+        return "Failed to find WhatsApp chat: contact is required."
+    try:
+        page, state = _ensure_whatsapp_page()
+        if state == "login_required":
+            return "WhatsApp Web login is required. Please scan the QR code first."
+
+        _fill_first_available(page, WHATSAPP_SEARCH_SELECTORS, contact, timeout=7000)
+        page.wait_for_timeout(1000)
+        _click_matching_chat(page, contact)
+        page.wait_for_timeout(1000)
+        return f"Opened WhatsApp chat with {contact}."
+    except Exception as exc:
+        return f"Failed to find WhatsApp chat for {contact}: {exc}"
+
+
+def _whatsapp_draft_message_impl(contact: str, text: str) -> str:
+    """Fill the WhatsApp compose box without sending."""
+    contact = (contact or "").strip()
+    text = (text or "").strip()
+    if not contact:
+        return "Failed to draft WhatsApp message: contact is required."
+    if not text:
+        return "Failed to draft WhatsApp message: text is required."
+    try:
+        opened = _whatsapp_find_chat_impl(contact)
+        if not opened.startswith("Opened WhatsApp chat"):
+            return opened
+
+        page = _ensure_browser()
+        _fill_first_available(page, WHATSAPP_COMPOSE_SELECTORS, text, timeout=7000)
+        page.wait_for_timeout(500)
+        return f"Drafted WhatsApp message to {contact}: {text}"
+    except Exception as exc:
+        return f"Failed to draft WhatsApp message for {contact}: {exc}"
+
+
+def _whatsapp_send_message_impl(contact: str, text: str) -> str:
+    """Fill and send a WhatsApp message using WhatsApp Web."""
+    contact = (contact or "").strip()
+    text = (text or "").strip()
+    if not contact:
+        return "Failed to send WhatsApp message: contact is required."
+    if not text:
+        return "Failed to send WhatsApp message: text is required."
+    try:
+        opened = _whatsapp_find_chat_impl(contact)
+        if not opened.startswith("Opened WhatsApp chat"):
+            return opened
+
+        page = _ensure_browser()
+        _, compose = _fill_first_available(page, WHATSAPP_COMPOSE_SELECTORS, text, timeout=7000)
+        _press_enter(compose)
+        page.wait_for_timeout(1000)
+        return f"Sent WhatsApp message to {contact}: {text}"
+    except Exception as exc:
+        return f"Failed to send WhatsApp message for {contact}: {exc}"
+
+
 # ----------------------------------------------------------------------------
 # Public tool entrypoints — every call is pinned to the single browser thread so
 # Playwright's thread-bound sync objects stay valid across a multi-step session.
@@ -363,3 +530,19 @@ def browser_scroll(direction: str, amount: str = "window") -> str:
 
 def browser_go_back() -> str:
     return _run_on_browser_thread(_browser_go_back_impl)
+
+
+def whatsapp_open() -> str:
+    return _run_on_browser_thread(_whatsapp_open_impl)
+
+
+def whatsapp_find_chat(contact: str) -> str:
+    return _run_on_browser_thread(_whatsapp_find_chat_impl, contact)
+
+
+def whatsapp_draft_message(contact: str, text: str) -> str:
+    return _run_on_browser_thread(_whatsapp_draft_message_impl, contact, text)
+
+
+def whatsapp_send_message(contact: str, text: str) -> str:
+    return _run_on_browser_thread(_whatsapp_send_message_impl, contact, text)

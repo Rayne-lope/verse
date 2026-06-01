@@ -61,6 +61,30 @@ def fast_intent_classifier(transcript: str) -> tuple[IntentCategory, float, bool
     ))
     has_web_action = (not non_web_context) and any(k in normalized for k in web_action_keywords)
 
+    whatsapp_terms = (
+        "whatsapp", "whats app", "web whatsapp", "webwhatsapp", "web whatsapp com",
+    )
+    browser_surface_terms = (
+        "di brave", "lewat brave", "pakai brave", "dengan brave",
+        "di browser", "lewat browser", "pakai browser", "di chrome", "di safari",
+    )
+    has_whatsapp_web_intent = (not non_web_context) and any(
+        k in normalized for k in whatsapp_terms
+    )
+    has_browser_surface_intent = (not non_web_context) and any(
+        k in normalized for k in browser_surface_terms
+    )
+    browser_hosted_action_terms = (
+        "buka", "open", "launch", "buat balasan", "balasan", "balas", "reply",
+        "kirim", "send", "pesan", "message", "chat", "ketik", "type", "klik",
+        "click", "navigasi", "navigate",
+    )
+    if has_whatsapp_web_intent or (
+        has_browser_surface_intent
+        and any(k in normalized for k in browser_hosted_action_terms)
+    ):
+        return IntentCategory.BROWSER, 0.93, False
+
     # 3. Check for APP intents (avoiding browser navigation)
     app_keywords = ("open app", "buka aplikasi", "buka", "launch", "close app", "tutup aplikasi", "tutup")
     app_names = ("spotify", "vs code", "vscode", "visual studio code", "code", "brave", "chrome", "safari", "notes", "calendar", "reminders", "mail")
