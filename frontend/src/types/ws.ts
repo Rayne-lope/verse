@@ -111,6 +111,14 @@ export interface ApiKeySetMessage {
   success: boolean;
 }
 
+export interface NowPlayingMessage {
+  type: "now_playing";
+  playing: boolean;
+  player: string;
+  track: string;
+  artist: string;
+}
+
 export type IncomingMessage =
   | StateChangeMessage
   | AudioLevelMessage
@@ -125,7 +133,9 @@ export type IncomingMessage =
   | VADUpdateMessage
   | ConfigDataMessage
   | ConfigUpdatedMessage
-  | ApiKeySetMessage;
+  | ApiKeySetMessage
+  | NowPlayingMessage;
+
 
 export type ManualTriggerAction =
   | "start_listening"

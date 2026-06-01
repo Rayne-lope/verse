@@ -37,6 +37,7 @@ class WebSocketServer:
         self._consumer: asyncio.Task | None = None
         self._config: Any | None = None
         self._mic_status: dict[str, Any] | None = None
+        self._now_playing: dict[str, Any] | None = None
 
     @property
     def client_count(self) -> int:
@@ -89,6 +90,8 @@ class WebSocketServer:
         """Thread-safe entry point for producers running off the event loop."""
         if message.get("type") == "mic_status":
             self._mic_status = dict(message)
+        elif message.get("type") == "now_playing":
+            self._now_playing = dict(message)
         loop = self._loop
         if loop is None:
             self._queue.put_nowait(message)
@@ -119,6 +122,8 @@ class WebSocketServer:
                 await client.send(json.dumps(config_data_message(self._config, api_keys)))
             if self._mic_status is not None:
                 await client.send(json.dumps(self._mic_status))
+            if self._now_playing is not None:
+                await client.send(json.dumps(self._now_playing))
             async for raw in client:
                 if self._on_client_message is None:
                     continue

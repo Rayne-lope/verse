@@ -280,6 +280,9 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
         on_config_changed=always_on_runtime.sync if always_on_runtime else None,
     )
 
+    from verse.ws.media import media_monitor_task
+    ws_server._media_task = asyncio.create_task(media_monitor_task(ws_server))
+
     return engine, always_on_runtime
 
 
@@ -368,6 +371,12 @@ def main() -> None:
         listener.stop()
 
         async def _shutdown() -> None:
+            if hasattr(ws_server, "_media_task") and ws_server._media_task:
+                ws_server._media_task.cancel()
+                try:
+                    await ws_server._media_task
+                except asyncio.CancelledError:
+                    pass
             if always_on_runtime is not None:
                 always_on_runtime.close()
             if hasattr(engine, "close"):

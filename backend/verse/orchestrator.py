@@ -12,7 +12,7 @@ from verse.tts import TextSegmenter
 from verse.tools import ToolSelector
 from verse.audio.streaming_player import StreamingPlayer
 from verse.latency import LatencyTracker
-from verse.llm.base import LLMAdapter
+from verse.llm.base import LLMAdapter, LLMStreamEvent
 from verse.state import State, StateMachine, StateChangedEvent
 from verse.stt.base import STTAdapter, STTEvent
 from verse.tools.registry import ToolRegistry
@@ -446,20 +446,12 @@ class Orchestrator:
                 self._current_latency_metrics["stt_ms"] = int(stt_duration * 1000)
 
             start_llm = time.time()
-            reply = await self._respond(transcript, history or [])
+            reply = await self._respond_and_speak_streaming(transcript, history or [])
             llm_duration = time.time() - start_llm
-            print(f"[Debug] LLM took: {llm_duration:.2f}s")
+            print(f"[Debug] Response took: {llm_duration:.2f}s")
 
             if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
                 self._current_latency_metrics["llm_ms"] = int(llm_duration * 1000)
-
-            start_tts = time.time()
-            await self._speak(reply)
-            tts_duration = time.time() - start_tts
-            print(f"[Debug] TTS took: {tts_duration:.2f}s")
-
-            if self.debug_logger is not None and self._current_turn_id == turn_id and turn_id is not None:
-                self._current_latency_metrics["tts_ms"] = int(tts_duration * 1000)
             if self._current_turn_id == turn_id:
                 self._latency_mark("turn_done")
                 self._write_current_turn_data()
@@ -502,6 +494,277 @@ class Orchestrator:
         if self.on_transcript:
             self.on_transcript(transcript)
         return transcript
+
+    def _build_llm_context(
+        self,
+        transcript: str,
+        history: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        base_history = history if history else self._conversation_history
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": self._compose_system_prompt()},
+            *base_history,
+            {"role": "user", "content": transcript},
+        ]
+        category, _, _ = fast_intent_classifier(transcript)
+        selected_tools = self.tool_selector.select(transcript, category)
+        definitions = self.registry.list_definitions(selected_tools)
+        return messages, definitions or None
+
+    async def _respond_and_speak_streaming(
+        self,
+        transcript: str,
+        history: list[dict[str, Any]],
+    ) -> str:
+        self._latency_mark("local_intent_start")
+        local_reply = self._try_local_intent(transcript)
+        self._latency_mark("local_intent_done", matched=local_reply is not None)
+        turn = self._current_turn or TurnContext(id=self._current_turn_id or "turn_default")
+        self._current_turn = turn
+
+        if local_reply is not None:
+            self._llm_messages = [{"role": "user", "content": transcript}]
+            self._llm_response = {"text": local_reply}
+            self._remember_turn(transcript, local_reply)
+            await self.speak_text_immediately(turn, local_reply)
+            if self.conversation_mode_active:
+                self.start_auto_listening()
+            return local_reply
+
+        messages, tools = self._build_llm_context(transcript, history)
+        reply = ""
+        total_tool_ms = 0.0
+        tool_count = 0
+        llm_started = False
+        llm_first_token_seen = False
+
+        for _ in range(self.max_tool_iterations):
+            if not llm_started:
+                self._latency_mark("llm_request_start")
+                llm_started = True
+
+            result = await self._stream_llm_once(
+                turn,
+                messages,
+                tools,
+                llm_first_token_seen=llm_first_token_seen,
+            )
+            llm_first_token_seen = llm_first_token_seen or result["first_token_seen"]
+            speech_task = result["speech_task"]
+            tool_calls = result["tool_calls"]
+            text = result["text"].strip()
+
+            if not tool_calls:
+                reply = text
+                self._llm_response = {"text": reply, "tool_calls": []}
+                self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+                if speech_task is not None:
+                    await speech_task
+                break
+
+            if speech_task is not None:
+                await speech_task
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": text or None,
+                    "tool_calls": tool_calls,
+                }
+            )
+            for tool_call in tool_calls:
+                name = tool_call.get("function", {}).get("name", "")
+                if name in CANNED_ACKNOWLEDGEMENTS and self._current_turn is not None:
+                    if not getattr(self._current_turn, "canned_ack_spoken", False):
+                        self._current_turn.canned_ack_spoken = True
+                        ack_text = CANNED_ACKNOWLEDGEMENTS[name]
+                        await self.speak_text_immediately(self._current_turn, ack_text)
+                        self.state_machine.force_thinking()
+
+                import time
+                start_tool = time.time()
+                tool_result = self._run_tool(tool_call)
+                tool_duration = time.time() - start_tool
+                total_tool_ms += tool_duration
+                tool_count += 1
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.get("id"),
+                        "content": tool_result,
+                    }
+                )
+        else:
+            result = await self._stream_llm_once(
+                turn,
+                messages,
+                None,
+                llm_first_token_seen=llm_first_token_seen,
+            )
+            llm_first_token_seen = llm_first_token_seen or result["first_token_seen"]
+            reply = result["text"].strip()
+            self._llm_response = {"text": reply, "tool_calls": []}
+            self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+            if result["speech_task"] is not None:
+                await result["speech_task"]
+
+        self._llm_messages = messages
+        self._latency_metadata(tool_count=tool_count)
+        if self.debug_logger is not None and self._current_turn_id is not None:
+            self._current_latency_metrics["tool_ms"] = int(total_tool_ms * 1000)
+
+        self._remember_turn(transcript, reply)
+        if self.conversation_mode_active:
+            self.start_auto_listening()
+        return reply
+
+    async def _stream_llm_once(
+        self,
+        turn: TurnContext,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+        *,
+        llm_first_token_seen: bool,
+    ) -> dict[str, Any]:
+        sentinel = object()
+        text_queue: asyncio.Queue[str | object] = asyncio.Queue()
+        first_text = asyncio.Event()
+        text_parts: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        first_token_marked = False
+        meaningful_text_seen = False
+        tool_started_before_text = False
+        tool_started_after_text = False
+
+        async def queued_text_stream() -> AsyncIterator[str]:
+            while True:
+                item = await text_queue.get()
+                if item is sentinel:
+                    break
+                yield str(item)
+
+        async def interrupt_stream_for_tool() -> None:
+            playback = turn.playback
+            if playback is None:
+                return
+            try:
+                await playback.clear()
+            except Exception:
+                pass
+
+        async def produce() -> None:
+            nonlocal first_token_marked
+            nonlocal meaningful_text_seen
+            nonlocal tool_started_before_text
+            nonlocal tool_started_after_text
+
+            try:
+                async for event in self._llm_stream_events(messages, tools):
+                    if turn.is_cancelled():
+                        break
+
+                    if event.type == "text_delta":
+                        if not event.text or tool_started_before_text or tool_started_after_text:
+                            continue
+
+                        text_parts.append(event.text)
+                        if self.on_assistant_text:
+                            self.on_assistant_text("".join(text_parts))
+
+                        if event.text.strip():
+                            meaningful_text_seen = True
+                            if not llm_first_token_seen and not first_token_marked:
+                                self._latency_mark("llm_first_token")
+                                first_token_marked = True
+                            first_text.set()
+
+                        await text_queue.put(event.text)
+                        continue
+
+                    if event.type in ("tool_call_delta", "tool_call_done"):
+                        if meaningful_text_seen:
+                            tool_started_after_text = True
+                            if event.type == "tool_call_done" and event.tool_call:
+                                tool_calls.append(event.tool_call)
+                                await interrupt_stream_for_tool()
+                                break
+                            continue
+
+                        tool_started_before_text = True
+                        if event.type == "tool_call_done" and event.tool_call:
+                            tool_calls.append(event.tool_call)
+                        continue
+
+                    if event.type == "error":
+                        raw = event.raw
+                        if isinstance(raw, BaseException):
+                            raise raw
+                        raise RuntimeError(event.text or "LLM stream failed")
+
+                    if event.type == "done":
+                        break
+            finally:
+                await text_queue.put(sentinel)
+
+        producer_task = asyncio.create_task(produce())
+        first_text_task = asyncio.create_task(first_text.wait())
+        speech_task: asyncio.Task[None] | None = None
+
+        done, _ = await asyncio.wait(
+            {producer_task, first_text_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if first_text.is_set():
+            speech_task = asyncio.create_task(self.speak_streaming(turn, queued_text_stream()))
+
+        if first_text_task not in done and not first_text_task.done():
+            first_text_task.cancel()
+            try:
+                await first_text_task
+            except asyncio.CancelledError:
+                pass
+
+        await producer_task
+
+        return {
+            "text": "".join(text_parts),
+            "tool_calls": tool_calls,
+            "first_token_seen": first_token_marked,
+            "speech_task": speech_task,
+        }
+
+    async def _llm_stream_events(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[LLMStreamEvent]:
+        stream_chat = None
+        if isinstance(self.llm, LLMAdapter) or getattr(type(self.llm), "stream_chat", None) is not None:
+            stream_chat = getattr(self.llm, "stream_chat", None)
+
+        if stream_chat is not None:
+            stream = stream_chat(messages, tools=tools)
+            if hasattr(stream, "__aiter__"):
+                async for event in stream:
+                    yield event
+                return
+
+        response = await self.llm.chat(messages, tools=tools)
+        if response.tool_calls:
+            for tool_call in response.tool_calls:
+                yield LLMStreamEvent(
+                    type="tool_call_done",
+                    tool_call=tool_call,
+                    raw=getattr(response, "raw", None),
+                )
+        elif response.text:
+            yield LLMStreamEvent(
+                type="text_delta",
+                text=response.text,
+                raw=getattr(response, "raw", None),
+            )
+        yield LLMStreamEvent(type="done", raw=getattr(response, "raw", None))
 
     async def _respond(self, transcript: str, history: list[dict[str, Any]]) -> str:
         self._latency_mark("local_intent_start")
@@ -1254,6 +1517,7 @@ class Orchestrator:
 
         segmenter = TextSegmenter()
         playback_started = False
+        tts_request_started = False
 
         try:
             async for delta in text_stream:
@@ -1269,6 +1533,10 @@ class Orchestrator:
                     clean_segment = self._clean_markdown_for_tts(segment)
                     if not clean_segment.strip():
                         continue
+
+                    if not tts_request_started:
+                        self._latency_mark("tts_request_start", chars=len(clean_segment))
+                        tts_request_started = True
 
                     async for pcm_chunk in self.tts.stream_pcm(clean_segment):
                         if turn.is_cancelled() or stop_event.is_set():
@@ -1301,6 +1569,10 @@ class Orchestrator:
                     clean_segment = self._clean_markdown_for_tts(segment)
                     if not clean_segment.strip():
                         continue
+
+                    if not tts_request_started:
+                        self._latency_mark("tts_request_start", chars=len(clean_segment))
+                        tts_request_started = True
 
                     async for pcm_chunk in self.tts.stream_pcm(clean_segment):
                         if turn.is_cancelled() or stop_event.is_set():

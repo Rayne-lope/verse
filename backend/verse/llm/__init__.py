@@ -1,4 +1,4 @@
-from verse.llm.base import LLMAdapter, LLMResponse
+from verse.llm.base import LLMAdapter, LLMResponse, LLMStreamEvent
 from verse.llm.deepseek import DeepSeekAdapter
 
-__all__ = ["DeepSeekAdapter", "LLMAdapter", "LLMResponse"]
+__all__ = ["DeepSeekAdapter", "LLMAdapter", "LLMResponse", "LLMStreamEvent"]

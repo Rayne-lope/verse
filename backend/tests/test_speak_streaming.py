@@ -8,7 +8,7 @@ from verse.orchestrator import Orchestrator, CANNED_ACKNOWLEDGEMENTS
 from verse.state import State, StateMachine
 from verse.tools.registry import Tool, ToolRegistry
 from verse.tts.base import RealtimeTTSAdapter, TTSAdapter
-from verse.llm.base import LLMResponse
+from verse.llm.base import LLMResponse, LLMStreamEvent
 
 
 class FakeRealtimeTTS(TTSAdapter, RealtimeTTSAdapter):
@@ -36,6 +36,23 @@ class FakeLLM:
     async def chat(self, messages, tools=None):
         self.requests.append((messages, tools))
         return self.responses.pop(0)
+
+
+class FakeStreamingLLM:
+    def __init__(self, streams):
+        self.streams = list(streams)
+        self.requests = []
+
+    async def chat(self, messages, tools=None):
+        raise AssertionError("streaming test should use stream_chat")
+
+    async def stream_chat(self, messages, tools=None):
+        self.requests.append((messages, tools))
+        for item in self.streams.pop(0):
+            if isinstance(item, float):
+                await asyncio.sleep(item)
+                continue
+            yield item
 
 
 @pytest.fixture
@@ -162,3 +179,149 @@ async def test_canned_acknowledgement_triggers_on_slow_tool(mock_sd_output_strea
     assert reply == "Ini infonya: Verse mac app."
     assert called == ["Verse mac"]
     assert machine.state is State.IDLE
+
+
+@pytest.mark.anyio
+async def test_handle_audio_streams_llm_text_to_ui_and_tts_before_done(mock_sd_output_stream):
+    machine = StateMachine(initial_state=State.THINKING)
+    marks = []
+    assistant_updates = []
+    llm = FakeStreamingLLM(
+        [
+            [
+                LLMStreamEvent(type="text_delta", text="Halo."),
+                0.05,
+                LLMStreamEvent(type="text_delta", text=" Lanjut."),
+                LLMStreamEvent(type="done"),
+            ]
+        ]
+    )
+    tts = FakeRealtimeTTS()
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=llm,
+        tts=tts,
+        registry=ToolRegistry(),
+        state_machine=machine,
+        on_assistant_text=assistant_updates.append,
+    )
+    original_mark = orch._latency_mark
+
+    def record_mark(name, **data):
+        marks.append(name)
+        original_mark(name, **data)
+
+    orch._latency_mark = record_mark
+
+    reply = await orch.handle_audio(b"audio")
+
+    assert reply == "Halo. Lanjut."
+    assert assistant_updates == ["Halo.", "Halo. Lanjut."]
+    assert any("Halo" in text for text in tts.spoken)
+    assert marks.index("tts_first_audio") < marks.index("llm_done")
+    assert machine.state is State.IDLE
+
+
+@pytest.mark.anyio
+async def test_streaming_tool_call_before_text_runs_tool_then_streams_final(mock_sd_output_stream):
+    called = []
+
+    def lookup():
+        called.append("lookup")
+        return "tool result"
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="lookup",
+            description="lookup",
+            parameters={"type": "object", "properties": {}},
+            handler=lookup,
+        )
+    )
+    tool_call = {
+        "id": "call_lookup",
+        "type": "function",
+        "function": {"name": "lookup", "arguments": "{}"},
+    }
+    llm = FakeStreamingLLM(
+        [
+            [
+                LLMStreamEvent(type="tool_call_done", tool_call=tool_call),
+                LLMStreamEvent(type="done"),
+            ],
+            [
+                LLMStreamEvent(type="text_delta", text="Ini hasilnya."),
+                LLMStreamEvent(type="done"),
+            ],
+        ]
+    )
+    tts = FakeRealtimeTTS()
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=llm,
+        tts=tts,
+        registry=registry,
+        state_machine=StateMachine(initial_state=State.THINKING),
+    )
+
+    reply = await orch.handle_audio(b"audio")
+
+    assert called == ["lookup"]
+    assert reply == "Ini hasilnya."
+    assert tts.spoken == ["Ini hasilnya."]
+    assert any(m.get("role") == "tool" and m.get("content") == "tool result" for m in llm.requests[1][0])
+
+
+@pytest.mark.anyio
+async def test_streaming_tool_call_after_text_interrupts_then_streams_followup(mock_sd_output_stream):
+    called = []
+
+    def lookup():
+        called.append("lookup")
+        return "tool result"
+
+    registry = ToolRegistry()
+    registry.register(
+        Tool(
+            name="lookup",
+            description="lookup",
+            parameters={"type": "object", "properties": {}},
+            handler=lookup,
+        )
+    )
+    tool_call = {
+        "id": "call_lookup",
+        "type": "function",
+        "function": {"name": "lookup", "arguments": "{}"},
+    }
+    llm = FakeStreamingLLM(
+        [
+            [
+                LLMStreamEvent(type="text_delta", text="Aku cek dulu."),
+                LLMStreamEvent(type="tool_call_done", tool_call=tool_call),
+                LLMStreamEvent(type="text_delta", text=" Jangan lanjutkan ini."),
+                LLMStreamEvent(type="done"),
+            ],
+            [
+                LLMStreamEvent(type="text_delta", text="Hasil akhirnya."),
+                LLMStreamEvent(type="done"),
+            ],
+        ]
+    )
+    tts = FakeRealtimeTTS()
+    orch = Orchestrator(
+        stt=FakeSTT(),
+        llm=llm,
+        tts=tts,
+        registry=registry,
+        state_machine=StateMachine(initial_state=State.THINKING),
+    )
+
+    reply = await orch.handle_audio(b"audio")
+
+    assert called == ["lookup"]
+    assert reply == "Hasil akhirnya."
+    assert "Aku cek dulu." in tts.spoken
+    assert "Hasil akhirnya." in tts.spoken
+    assert all("Jangan lanjutkan ini" not in text for text in tts.spoken)

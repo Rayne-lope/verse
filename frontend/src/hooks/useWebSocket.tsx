@@ -7,6 +7,7 @@ import type {
   OutgoingMessage,
   VerseConfig,
   VerseState,
+  NowPlayingMessage,
 } from "../types/ws";
 
 const DEFAULT_URL = "ws://localhost:8765";
@@ -24,6 +25,7 @@ export interface WebSocketContextValue {
   config: VerseConfig | null;
   apiKeys: ApiKeyStatus | null;
   onboardingNeeded: boolean;
+  nowPlaying: NowPlayingMessage | null;
   send: (message: OutgoingMessage) => void;
 }
 
@@ -46,6 +48,7 @@ export function WebSocketProvider({
   const [micStatus, setMicStatus] = useState<MicStatusMessage | null>(null);
   const [config, setConfig] = useState<VerseConfig | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeyStatus | null>(null);
+  const [nowPlaying, setNowPlaying] = useState<NowPlayingMessage | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(INITIAL_BACKOFF_MS);
@@ -110,6 +113,9 @@ export function WebSocketProvider({
       case "config_data":
         setConfig(message.config);
         setApiKeys(message.api_keys);
+        break;
+      case "now_playing":
+        setNowPlaying(message);
         break;
       case "config_updated":
       case "api_key_set":
@@ -193,9 +199,10 @@ export function WebSocketProvider({
       config,
       apiKeys,
       onboardingNeeded,
+      nowPlaying,
       send,
     }),
-    [connectionStatus, lastState, audioLevel, transcript, userPartialTranscript, assistantText, micStatus, config, apiKeys, onboardingNeeded, send]
+    [connectionStatus, lastState, audioLevel, transcript, userPartialTranscript, assistantText, micStatus, config, apiKeys, onboardingNeeded, nowPlaying, send]
   );
 
   return (
