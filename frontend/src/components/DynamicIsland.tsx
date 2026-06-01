@@ -9,6 +9,7 @@ import { ListeningMode } from "./island-modes/ListeningMode";
 import { SpeakingMode } from "./island-modes/SpeakingMode";
 import { ExpandedMode } from "./island-modes/ExpandedMode";
 import { getIslandCalibration } from "../utils/calibration";
+import { resizeAndPositionWidget } from "../utils/window";
 import "./DynamicIsland.css";
 
 interface DynamicIslandProps {
@@ -68,6 +69,17 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
   useEffect(() => () => {
     if (optimisticTimerRef.current !== null) clearTimeout(optimisticTimerRef.current);
   }, []);
+
+  // Dynamically resize the transparent Tauri window to match the active mode
+  // This keeps the area below the compact pill completely free for mouse clicks (e.g. Spotify search bar)
+  useEffect(() => {
+    // Add safe padding to accommodate drop shadows and hover halos
+    const paddingW = mode === "expanded" ? 24 : 32;
+    const paddingH = mode === "expanded" ? 24 : 16;
+    const w = Math.round(shellSize.width + paddingW);
+    const h = Math.round(shellSize.height + paddingH);
+    resizeAndPositionWidget(w, h, calibration);
+  }, [mode, shellSize, calibration]);
 
   const toggleConversation = useCallback(() => {
     if (!connected) return;
