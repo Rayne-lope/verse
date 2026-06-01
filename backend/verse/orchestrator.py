@@ -1993,10 +1993,12 @@ class Orchestrator:
         import time
         import numpy as np
 
-        # Activate streaming STT and spawn the background task
-        loop = asyncio.get_running_loop()
-        self._streaming_stt_active = True
-        self._streaming_stt_task = loop.create_task(self._run_streaming_stt_task())
+        # Activate streaming STT and spawn the background task if configured
+        partial_mode = getattr(self.config.stt, "partial_mode", "off")
+        if partial_mode != "off":
+            loop = asyncio.get_running_loop()
+            self._streaming_stt_active = True
+            self._streaming_stt_task = loop.create_task(self._run_streaming_stt_task())
 
         last_send_time = 0.0
         prev_state = VADState.WAITING_FOR_SPEECH

@@ -97,6 +97,7 @@ def config_data_message(config: "AppConfig", api_keys: dict[str, bool]) -> dict[
             },
             "stt": {
                 "language": config.stt.language,
+                "partial_mode": getattr(config.stt, "partial_mode", "off"),
             },
             "llm": {
                 "provider": config.llm.provider,
@@ -118,6 +119,10 @@ def config_data_message(config: "AppConfig", api_keys: dict[str, bool]) -> dict[
             "memory": {
                 "enabled": config.memory.enabled,
                 "max_facts": config.memory.max_facts,
+            },
+            "voice": {
+                "engine": config.voice.engine,
+                "low_latency": getattr(config.voice, "low_latency", True),
             },
         },
         "api_keys": api_keys,

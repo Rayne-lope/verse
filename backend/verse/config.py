@@ -22,6 +22,7 @@ class HotkeyConfig:
 class STTConfig:
     provider: str = "groq"
     language: str = "auto"
+    partial_mode: str = "off"
 
 
 @dataclass(frozen=True)
@@ -130,6 +131,7 @@ class VoiceConfig:
     engine: str = "classic_pipeline"  # "classic_pipeline" | "gemini_live"
     max_tool_iterations: int = 2
     gemini_live: GeminiLiveConfig = field(default_factory=GeminiLiveConfig)
+    low_latency: bool = True
 
 
 @dataclass(frozen=True)
@@ -312,6 +314,7 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
         stt=STTConfig(
             provider=str(stt.get("provider", STTConfig.provider)),
             language=str(stt.get("language", STTConfig.language)),
+            partial_mode=str(stt.get("partial_mode", STTConfig.partial_mode)),
         ),
         llm=LLMConfig(
             provider=str(llm.get("provider", LLMConfig.provider)),
@@ -385,6 +388,9 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
                 model=str(gl_raw.get("model", GeminiLiveConfig.model)),
                 voice_name=str(gl_raw.get("voice_name", GeminiLiveConfig.voice_name)),
                 language_code=str(gl_raw.get("language_code", GeminiLiveConfig.language_code)),
+            ),
+            low_latency=_as_bool(
+                voice_raw.get("low_latency"), VoiceConfig.low_latency
             ),
         ),
         debug=DebugConfig(

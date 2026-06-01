@@ -85,7 +85,7 @@ export interface VADUpdateMessage {
 
 export interface VerseConfig {
   tts: { provider: string; voice_id: string; speed: number };
-  stt: { language: string };
+  stt: { language: string; partial_mode?: string };
   llm: { provider: string; model: string; temperature: number; max_history: number };
   hotkey: { trigger: string };
   always_on: {
@@ -97,6 +97,7 @@ export interface VerseConfig {
     device: string;
   };
   memory: { enabled: boolean; max_facts: number };
+  voice?: { engine: string; low_latency: boolean };
 }
 
 export interface ApiKeyStatus {
