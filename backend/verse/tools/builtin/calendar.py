@@ -125,7 +125,8 @@ def read_calendar(date_query: str = "today") -> str:
     tell application "Calendar"
         repeat with aCal in calendars
             repeat with anEvt in (events of aCal whose (start date is greater than or equal to start_d and start date is less than end_d) or (end date is greater than start_d and start date is less than start_d))
-                set start_t to time string of (start date of anEvt)
+                set sd to start date of anEvt
+                tell me to set start_t to time string of sd
                 copy (summary of anEvt & " (" & start_t & ")") to end of eventList
             end repeat
         end repeat
