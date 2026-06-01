@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
@@ -103,6 +104,44 @@ class TestClassicPipelineEngine:
         engine.deactivate_conversation()
         mock_orchestrator.deactivate_conversation.assert_called_once()
 
+    async def test_classic_engine_thread_safety(self) -> None:
+        mock_orchestrator = MagicMock(spec=Orchestrator)
+        engine = ClassicPipelineEngine(mock_orchestrator)
+
+        event_called = asyncio.Event()
+
+        def test_callback(text, partial):
+            assert threading.current_thread() == threading.main_thread()
+            event_called.set()
+
+        engine.on_transcript = test_callback
+
+        def run_in_thread():
+            # Trigger orchestrator callback from a background thread
+            mock_orchestrator.on_transcript("Threaded text", True)
+
+        t = threading.Thread(target=run_in_thread)
+        t.start()
+        t.join()
+
+        await asyncio.wait_for(event_called.wait(), timeout=1.0)
+        assert event_called.is_set()
+
+    async def test_classic_engine_bounded_queue(self) -> None:
+        mock_orchestrator = MagicMock(spec=Orchestrator)
+        engine = ClassicPipelineEngine(mock_orchestrator)
+
+        # Fill the queue with transient audio levels
+        for i in range(300):
+            engine._enqueue_event("audio_level", {"level": float(i)})
+
+        # The queue maxsize is 256. If it wasn't dropping, it would be full (size 256)
+        # Verify it didn't block and queue size remains capped
+        assert engine._event_queue.qsize() <= 256
+
+        # Enqueue a critical event; even if full, it shouldn't raise exception
+        engine._enqueue_event("transcript", {"text": "critical", "partial": False})
+
 
 @pytest.mark.anyio
 class TestLiveRealtimeEngine:
@@ -123,6 +162,7 @@ class TestLiveRealtimeEngine:
         state_machine = StateMachine()
 
         engine = LiveRealtimeEngine(config, registry, state_machine)
+        engine._loop = asyncio.get_running_loop()
         
         # Test basic event enqueueing and callback dispatches
         engine.on_transcript = MagicMock()
@@ -136,3 +176,46 @@ class TestLiveRealtimeEngine:
         assert ev.payload == {"text": "Gemini speaking", "partial": True}
         
         engine.on_transcript.assert_called_once_with("Gemini speaking", True)
+
+    async def test_live_engine_clear_queue(self) -> None:
+        config = AppConfig()
+        registry = MagicMock(spec=ToolRegistry)
+        state_machine = StateMachine()
+
+        engine = LiveRealtimeEngine(config, registry, state_machine)
+        
+        await engine.send_audio(b"audio chunk 1")
+        await engine.send_audio(b"audio chunk 2")
+        assert engine._audio_queue.qsize() == 2
+
+        await engine.cancel_response()
+        assert engine._audio_queue.qsize() == 0
+
+    async def test_live_engine_error_broadcasting(self) -> None:
+        config = AppConfig()
+        registry = MagicMock(spec=ToolRegistry)
+        state_machine = StateMachine()
+
+        engine = LiveRealtimeEngine(config, registry, state_machine)
+        engine._loop = asyncio.get_running_loop()
+
+        mock_client = MagicMock()
+        mock_client.aio.live.connect = MagicMock(side_effect=Exception("Connection refused"))
+
+        # Limit the reconnect/session loop to stop immediately on error or close
+        async def close_after_a_bit():
+            await asyncio.sleep(0.1)
+            await engine.close()
+
+        asyncio.create_task(close_after_a_bit())
+        
+        # Start session loop (patch keyring to return a mock key and client)
+        with patch("keyring.get_password", return_value="dummy_key"), \
+             patch("google.genai.Client", return_value=mock_client):
+            await engine.start_session()
+            
+            # Read first event from events iterator — should be connection error
+            events_iter = engine.events()
+            ev = await anext(events_iter)
+            assert ev.type == "error"
+            assert "Gemini Live error" in ev.payload["message"]

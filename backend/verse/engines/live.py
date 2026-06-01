@@ -55,7 +55,7 @@ class LiveRealtimeEngine(VoiceEngine):
         # Background tasks
         self._session_task: asyncio.Task | None = None
         self._audio_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=60)
-        self._event_queue: asyncio.Queue[VoiceEvent] = asyncio.Queue()
+        self._event_queue: asyncio.Queue[VoiceEvent] = asyncio.Queue(maxsize=256)
 
         # Playback (can be managed by caller or internally; we keep internal player for fast local playback)
         self._player = None
@@ -110,8 +110,16 @@ class LiveRealtimeEngine(VoiceEngine):
         while True:
             yield await self._event_queue.get()
 
+    def _clear_audio_queue(self) -> None:
+        while not self._audio_queue.empty():
+            try:
+                self._audio_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
     async def cancel_response(self) -> None:
         """Send barge-in interrupt block to the Gemini Live session."""
+        self._clear_audio_queue()
         if self._player:
             await self._player.clear()
 
@@ -135,6 +143,7 @@ class LiveRealtimeEngine(VoiceEngine):
     async def close(self) -> None:
         """Close connections and tasks gracefully."""
         self._closed = True
+        self._clear_audio_queue()
         if self._session_task and not self._session_task.done():
             self._session_task.cancel()
             try:
@@ -143,7 +152,11 @@ class LiveRealtimeEngine(VoiceEngine):
                 pass
 
         if self._player:
-            self._player.close()
+            try:
+                self._player.close()
+            except Exception:
+                pass
+            self._player = None
 
     # ------------------------------------------------------------------
     # Compatibility Methods for main.py integration
@@ -161,6 +174,7 @@ class LiveRealtimeEngine(VoiceEngine):
         if not self._state_machine.is_idle:
             return False
 
+        self._clear_audio_queue()
         self._state_machine.hotkey_pressed()   # IDLE → LISTENING
         self._speaking_started = False
         self._input_transcript = ""
@@ -242,9 +256,11 @@ class LiveRealtimeEngine(VoiceEngine):
                 self._session = None
                 if self._session_ready is not None:
                     self._session_ready.clear()
+                self._clear_audio_queue()
                 logger.warning(
                     "Gemini Live error: %s — reconnecting in %.1fs", exc, self._backoff
                 )
+                self._enqueue_event("error", {"message": f"Gemini Live error: {exc}", "recoverable": True})
                 self._enqueue_event("pipeline_event", {"stage": "gemini", "event": "reconnecting", "metadata": {"message": str(exc)}})
                 await asyncio.sleep(self._backoff)
                 self._backoff = min(self._backoff * 2, _RECONNECT_MAX)
@@ -389,29 +405,67 @@ class LiveRealtimeEngine(VoiceEngine):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _dispatch_callback(self, cb: Callable[..., None] | None, *args: Any) -> None:
+        if cb is None:
+            return
+        try:
+            in_loop_thread = (asyncio.get_running_loop() is self._loop)
+        except RuntimeError:
+            in_loop_thread = False
+
+        if in_loop_thread:
+            cb(*args)
+        elif self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(cb, *args)
+        else:
+            cb(*args)
+
     def _enqueue_event(self, type_: str, payload: dict[str, Any]) -> None:
+        if self._event_queue.full():
+            if type_ in ("audio_level", "vad_state"):
+                return  # Drop transient high-frequency events immediately
+
+            # Try to make room by removing the oldest transient event from the queue
+            removed = False
+            for event_item in list(self._event_queue._queue):
+                if event_item.type in ("audio_level", "vad_state"):
+                    self._event_queue._queue.remove(event_item)
+                    removed = True
+                    break
+            
+            if not removed:
+                # If no transient event can be dropped, we must drop this event to avoid QueueFull crash
+                logger.error("Event queue completely full of critical events! Dropping: %s", type_)
+                return
+
         event = VoiceEvent(type=type_, payload=payload)
         
         # Fire standard callbacks concurrently
         if type_ == "transcript":
-            if self.on_transcript:
-                self.on_transcript(payload["text"], payload.get("partial", False))
-            if payload.get("partial", False) and self.on_user_partial_transcript:
-                self.on_user_partial_transcript(payload["text"], None)
-            elif not payload.get("partial", False) and self.on_user_final_transcript:
-                self.on_user_final_transcript(payload["text"])
-        elif type_ == "assistant_text" and self.on_assistant_text:
-            self.on_assistant_text(payload["text"])
-        elif type_ == "audio_level" and self.on_audio_level:
-            self.on_audio_level(payload["level"])
-        elif type_ == "tool_call" and self.on_tool_executed:
-            self.on_tool_executed(payload["name"], payload["result"])
-        elif type_ == "pipeline_event" and self.on_pipeline_event:
-            self.on_pipeline_event(payload["stage"], payload["event"], payload["metadata"])
-        elif type_ == "vad_state" and self.on_vad_state:
-            self.on_vad_state(payload["state"], payload["probability"])
+            self._dispatch_callback(self.on_transcript, payload["text"], payload.get("partial", False))
+            if payload.get("partial", False):
+                self._dispatch_callback(self.on_user_partial_transcript, payload["text"], None)
+            else:
+                self._dispatch_callback(self.on_user_final_transcript, payload["text"])
+        elif type_ == "assistant_text":
+            self._dispatch_callback(self.on_assistant_text, payload["text"])
+        elif type_ == "audio_level":
+            self._dispatch_callback(self.on_audio_level, payload["level"])
+        elif type_ == "tool_call":
+            self._dispatch_callback(self.on_tool_executed, payload["name"], payload["result"])
+        elif type_ == "pipeline_event":
+            self._dispatch_callback(self.on_pipeline_event, payload["stage"], payload["event"], payload["metadata"])
+        elif type_ == "vad_state":
+            self._dispatch_callback(self.on_vad_state, payload["state"], payload["probability"])
 
-        if self._loop and self._loop.is_running():
+        try:
+            in_loop_thread = (asyncio.get_running_loop() is self._loop)
+        except RuntimeError:
+            in_loop_thread = False
+
+        if in_loop_thread:
+            self._event_queue.put_nowait(event)
+        elif self._loop and self._loop.is_running():
             self._loop.call_soon_threadsafe(self._event_queue.put_nowait, event)
         else:
             self._event_queue.put_nowait(event)
