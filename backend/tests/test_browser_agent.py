@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from verse.tools.builtin.browser import (
     browser_inspect,
+    browser_read_current,
     browser_click,
     browser_input,
     browser_scroll,
@@ -76,6 +77,28 @@ def test_browser_inspect_with_elements():
         res = browser_inspect()
         assert "[1] input (text) - name=\"q\", placeholder=\"Search...\", aria-label=\"Search Query\"" in res
         assert "[2] button (submit) - name=\"submit\", text=\"Go\"" in res
+
+
+def test_browser_read_current_reads_active_page():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://example.com/article"
+    mock_page.evaluate.return_value = "Title\n\nParagraph one\nParagraph two"
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_read_current()
+        assert "Successfully read https://example.com/article" in res
+        assert "Title" in res
+        assert "Paragraph one" in res
+        mock_page.wait_for_timeout.assert_called_once_with(500)
 
 
 def test_browser_click_numeric_conversion():

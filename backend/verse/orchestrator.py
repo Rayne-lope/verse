@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 from typing import Any, Callable, AsyncIterator
 
@@ -25,6 +26,9 @@ DEFAULT_SYSTEM_PROMPT = (
     "Keep answers short and natural since they will be spoken aloud. "
     "Use the available tools to control music, open apps, search the web, "
     "or check the time when the user asks for those actions. "
+    "Available tools are authoritative: if a tool exists, you can use it. "
+    "When the user asks to browse, open a web page, read a page, search in a browser, click/type/scroll, or summarize web content, "
+    "you MUST use browser tools instead of claiming you cannot browse or read web pages. "
     "CRITICAL: When the user asks to change or check system settings (volume, brightness, mute, dark mode, DND), "
     "you MUST always call the respective tool first in the same turn. "
     "NEVER guess, assume, or claim that a setting has changed or been checked unless you have successfully executed the tool. "
@@ -55,6 +59,189 @@ def _project_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             msg["tool_calls"] = row["tool_calls"]
         projected.append(msg)
     return projected
+
+
+BROWSER_TURN_DIRECTIVE = (
+    "Browser turn directive: Verse has Playwright browser tools. For this user request, "
+    "call browser_navigate, browser_read_current, browser_inspect, browser_click, "
+    "browser_input, browser_scroll, or browser_go_back before giving the final answer. "
+    "Do not say you cannot browse, read pages, click, type, or summarize web content."
+)
+
+BROWSER_RETRY_DIRECTIVE = (
+    "The previous assistant response incorrectly refused browser capability. "
+    "Retry the original user request now. You have browser tools available and must call "
+    "one before answering."
+)
+
+
+def _is_test_artifact_message(content: str) -> bool:
+    return content.strip() == "Mocked LLM reply"
+
+
+def _looks_like_browser_refusal(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.lower()).strip()
+    if not normalized:
+        return False
+
+    refusal_markers = (
+        "tidak punya kemampuan",
+        "tidak bisa",
+        "nggak bisa",
+        "gak bisa",
+        "ga bisa",
+        "tidak dapat",
+        "hanya bisa",
+        "cuma bisa",
+        "cannot",
+        "can't",
+        "unable to",
+        "not able to",
+    )
+    browser_terms = (
+        "browser",
+        "brave",
+        "web",
+        "website",
+        "internet",
+        "halaman",
+        "artikel",
+        "tautan",
+        "link",
+        "membuka",
+        "buka",
+        "menavigasi",
+        "navigasi",
+        "membaca",
+        "baca",
+        "merangkum",
+        "rangkum",
+        "klik",
+        "click",
+        "ketik",
+        "type",
+        "browse",
+        "read",
+        "summarize",
+    )
+    return any(marker in normalized for marker in refusal_markers) and any(
+        term in normalized for term in browser_terms
+    )
+
+
+def _sanitize_history_for_context(
+    history: list[dict[str, Any]],
+    category: IntentCategory,
+) -> list[dict[str, Any]]:
+    cleaned: list[dict[str, Any]] = []
+    for message in history:
+        content = message.get("content")
+        if isinstance(content, str) and _is_test_artifact_message(content):
+            continue
+        if (
+            category == IntentCategory.BROWSER
+            and message.get("role") == "assistant"
+            and isinstance(content, str)
+            and _looks_like_browser_refusal(content)
+        ):
+            continue
+        cleaned.append(message)
+    return cleaned
+
+
+def _browser_retry_message(transcript: str) -> dict[str, str]:
+    return {
+        "role": "user",
+        "content": f"{BROWSER_RETRY_DIRECTIVE}\n\nOriginal user request: {transcript}",
+    }
+
+
+def _synthesize_browser_tool_call(
+    transcript: str,
+    messages: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    import urllib.parse
+
+    url_match = re.search(
+        r"(https?://[^\s]+|www\.[^\s]+|[\w.-]+\.(?:com|org|net|id|edu|gov|io)(?:/[^\s]*)?)",
+        transcript,
+        flags=re.IGNORECASE,
+    )
+    if url_match:
+        url = url_match.group(1).rstrip(".,;:)")
+        return _make_synthetic_tool_call("browser_navigate", {"url": url})
+
+    topic = _extract_browser_topic(transcript)
+    lower = transcript.lower()
+    context_lower = " ".join(
+        str(message.get("content", ""))
+        for message in (messages or [])
+        if message.get("role") == "user"
+    ).lower()
+    wants_wikipedia = "wikipedia" in lower or "wiki" in lower or (
+        topic and ("wikipedia" in context_lower or "wiki" in context_lower)
+    )
+    if wants_wikipedia:
+        if topic:
+            slug = urllib.parse.quote(topic.title().replace(" ", "_"))
+            return _make_synthetic_tool_call(
+                "browser_navigate",
+                {"url": f"https://id.wikipedia.org/wiki/{slug}"},
+            )
+        return _make_synthetic_tool_call("browser_read_current", {})
+
+    if topic:
+        query = urllib.parse.quote(topic)
+    else:
+        query = urllib.parse.quote(transcript.strip())
+    if query:
+        return _make_synthetic_tool_call(
+            "browser_navigate",
+            {"url": f"https://www.google.com/search?q={query}"},
+        )
+    return _make_synthetic_tool_call("browser_read_current", {})
+
+
+def _make_synthetic_tool_call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"browser_recovery:{name}",
+        "type": "function",
+        "function": {
+            "name": name,
+            "arguments": json.dumps(arguments, ensure_ascii=False),
+        },
+    }
+
+
+def _extract_browser_topic(transcript: str) -> str:
+    text = re.sub(r"[^\w\s]", " ", transcript, flags=re.UNICODE)
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+
+    patterns = (
+        r"(?:tentang|about) (?P<topic>.+?)(?: (?:di|dari|from) wiki(?:pedia)?| terus| lalu| kemudian| habis itu| abis itu| dan|$)",
+        r"(?:artikel|halaman) (?:tentang )?(?P<topic>.+?)(?: terus| lalu| kemudian| habis itu| abis itu| dan|$)",
+        r"(?:wikipedia(?: indonesia)?(?: halaman)?(?: tentang)? )(?P<topic>.+?)(?: terus| lalu| kemudian| habis itu| abis itu| dan|$)",
+        r"(?:cari|search|google) (?:info |informasi )?(?:tentang )?(?P<topic>.+?)(?: terus| lalu| kemudian| habis itu| abis itu| dan|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            return _clean_browser_topic(match.group("topic"))
+    return ""
+
+
+def _clean_browser_topic(topic: str) -> str:
+    topic = re.sub(r"\b(di|dari|from|wiki|wikipedia|artikel|halaman)\b", " ", topic, flags=re.IGNORECASE)
+    topic = re.sub(
+        r"\b(rangkum|ringkas|summarize|beritahu|kasih|beri|fakta|menarik|nih|ya|dong)\b",
+        " ",
+        topic,
+        flags=re.IGNORECASE,
+    )
+    topic = re.sub(r"\b(dua|tiga|empat|lima|\d+)\b", " ", topic, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", topic).strip()
 
 
 def _parse_fact_list(text: str) -> list[str]:
@@ -582,17 +769,21 @@ class Orchestrator:
         self,
         transcript: str,
         history: list[dict[str, Any]],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None, IntentCategory]:
+        category, _, _ = fast_intent_classifier(transcript)
         base_history = history if history else self._conversation_history
+        base_history = _sanitize_history_for_context(base_history, category)
+        system_prompt = self._compose_system_prompt()
+        if category == IntentCategory.BROWSER:
+            system_prompt = f"{system_prompt}\n\n{BROWSER_TURN_DIRECTIVE}"
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._compose_system_prompt()},
+            {"role": "system", "content": system_prompt},
             *base_history,
             {"role": "user", "content": transcript},
         ]
-        category, _, _ = fast_intent_classifier(transcript)
         selected_tools = self.tool_selector.select(transcript, category)
         definitions = self.registry.list_definitions(selected_tools)
-        return messages, definitions or None
+        return messages, definitions or None, category
 
     async def _respond_and_speak_streaming(
         self,
@@ -616,12 +807,14 @@ class Orchestrator:
                 self.start_auto_listening()
             return local_reply
 
-        messages, tools = self._build_llm_context(transcript, history)
+        messages, tools, category = self._build_llm_context(transcript, history)
         reply = ""
         total_tool_ms = 0.0
         tool_count = 0
         llm_started = False
         llm_first_token_seen = False
+        browser_retry_attempted = False
+        browser_fallback_used = False
 
         for _ in range(self.max_tool_iterations):
             if not llm_started:
@@ -648,6 +841,61 @@ class Orchestrator:
                 return text
 
             if not tool_calls:
+                if (
+                    category == IntentCategory.BROWSER
+                    and tools
+                    and _looks_like_browser_refusal(text)
+                ):
+                    if speech_task is not None:
+                        try:
+                            playback = turn.playback
+                            if playback is not None:
+                                await playback.clear()
+                        except Exception:
+                            pass
+                        if not speech_task.done():
+                            speech_task.cancel()
+                        try:
+                            await speech_task
+                        except asyncio.CancelledError:
+                            pass
+
+                    if not browser_retry_attempted:
+                        browser_retry_attempted = True
+                        self._emit_pipeline_event_for_turn(
+                            turn,
+                            "browser",
+                            "refusal_retry",
+                            {"transcript": transcript},
+                        )
+                        messages.append({"role": "assistant", "content": text})
+                        messages.append(_browser_retry_message(transcript))
+                        continue
+
+                    if not browser_fallback_used:
+                        browser_fallback_used = True
+                        tool_call = _synthesize_browser_tool_call(transcript, messages)
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [tool_call],
+                            }
+                        )
+                        tool_result, tool_duration = await self._run_tool_for_turn(turn, tool_call)
+                        if not self._is_active_turn(turn):
+                            return text
+                        total_tool_ms += tool_duration
+                        tool_count += 1
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.get("id"),
+                                "content": tool_result,
+                            }
+                        )
+                        continue
+
                 reply = text
                 self._llm_response = {"text": reply, "tool_calls": []}
                 self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
@@ -890,24 +1138,15 @@ class Orchestrator:
             self._remember_turn(transcript, local_reply)
             return local_reply
 
-        # Use caller-supplied history if given (tests), else the rolling session
-        # history (within + carried over from previous sessions).
-        base_history = history if history else self._conversation_history
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": self._compose_system_prompt()},
-            *base_history,
-            {"role": "user", "content": transcript},
-        ]
-        category, _, _ = fast_intent_classifier(transcript)
-        selected_tools = self.tool_selector.select(transcript, category)
-        definitions = self.registry.list_definitions(selected_tools)
-        tools = definitions or None
+        messages, tools, category = self._build_llm_context(transcript, history)
 
         reply = ""
         total_tool_ms = 0.0
         tool_count = 0
         llm_started = False
         llm_first_token_seen = False
+        browser_retry_attempted = False
+        browser_fallback_used = False
         for _ in range(self.max_tool_iterations):
             if not llm_started:
                 self._latency_mark("llm_request_start")
@@ -917,6 +1156,48 @@ class Orchestrator:
                 self._latency_mark("llm_first_token")
                 llm_first_token_seen = True
             if not response.tool_calls:
+                if (
+                    category == IntentCategory.BROWSER
+                    and tools
+                    and _looks_like_browser_refusal(response.text)
+                ):
+                    if not browser_retry_attempted:
+                        browser_retry_attempted = True
+                        if self.on_pipeline_event:
+                            self.on_pipeline_event(
+                                "browser",
+                                "refusal_retry",
+                                {"transcript": transcript},
+                            )
+                        messages.append({"role": "assistant", "content": response.text.strip()})
+                        messages.append(_browser_retry_message(transcript))
+                        continue
+
+                    if not browser_fallback_used:
+                        browser_fallback_used = True
+                        tool_call = _synthesize_browser_tool_call(transcript, messages)
+                        messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [tool_call],
+                            }
+                        )
+                        import time
+                        start_tool = time.time()
+                        result = self._run_tool(tool_call)
+                        tool_duration = time.time() - start_tool
+                        total_tool_ms += tool_duration
+                        tool_count += 1
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tool_call.get("id"),
+                                "content": result,
+                            }
+                        )
+                        continue
+
                 reply = response.text.strip()
                 self._llm_response = {
                     "text": reply,
@@ -2326,12 +2607,9 @@ class Orchestrator:
             self.state_machine.force_idle()
 
     def _on_state_changed(self, event: StateChangedEvent) -> None:
-        if event.state == State.IDLE:
-            try:
-                from verse.tools.builtin.browser import browser_close
-                browser_close()
-            except Exception as exc:
-                logger.error(f"Failed to close browser on IDLE transition: {exc}")
+        # Browser sessions stay open across follow-up turns. Users can close the
+        # Playwright context explicitly with browser_close.
+        return
 
 
 def _audio_duration_ms(audio: bytes) -> int | None:

@@ -1,10 +1,11 @@
 import asyncio
 import threading
+from unittest.mock import patch
 
-from verse.config import AppConfig, IntentConfig, ToolsConfig
+from verse.config import AppConfig, DebugConfig, IntentConfig, MemoryConfig, ToolsConfig
 from verse.llm.base import LLMResponse
 from verse.orchestrator import Orchestrator
-from verse.state import State, StateMachine
+from verse.state import State, StateChangedEvent, StateMachine, StateTrigger
 from verse.tools.registry import Tool, ToolRegistry
 
 
@@ -147,6 +148,133 @@ def test_default_voice_tool_iterations_limit_agentic_loops():
     assert reply == "Final answer."
     assert calls == ["tool", "tool"]
     assert len(llm.requests) == 3
+
+
+def test_browser_history_sanitization_keeps_tools_available():
+    calls = []
+
+    def browser_navigate(url):
+        calls.append(url)
+        return "Page Content:\nAntarktika adalah benua di kutub selatan."
+
+    registry = _registry_with("browser_navigate", browser_navigate)
+    machine = StateMachine(initial_state=State.THINKING)
+    tool_call = {
+        "id": "call_browser",
+        "type": "function",
+        "function": {
+            "name": "browser_navigate",
+            "arguments": '{"url": "https://id.wikipedia.org/wiki/Antartika"}',
+        },
+    }
+    llm = FakeLLM(
+        [
+            LLMResponse(text="", tool_calls=[tool_call]),
+            LLMResponse(text="Antarktika itu benua es.", tool_calls=[]),
+        ]
+    )
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        machine,
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_navigate"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+    history = [
+        {
+            "role": "assistant",
+            "content": "Maaf, aku tidak punya kemampuan untuk membuka halaman web atau membaca internet.",
+        },
+        {"role": "assistant", "content": "Mocked LLM reply"},
+    ]
+
+    reply = asyncio.run(
+        orch._respond("tolong rangkum artikel tentang Antartika dari wikipedia", history)
+    )
+
+    assert reply == "Antarktika itu benua es."
+    assert calls == ["https://id.wikipedia.org/wiki/Antartika"]
+    first_messages, first_tools = llm.requests[0]
+    first_contents = [m.get("content") for m in first_messages]
+    assert all("tidak punya kemampuan" not in str(content) for content in first_contents)
+    assert "Mocked LLM reply" not in first_contents
+    assert first_tools is not None
+    assert [t["function"]["name"] for t in first_tools] == ["browser_navigate"]
+
+
+def test_browser_refusal_fallback_executes_playwright_tool():
+    calls = []
+
+    def browser_navigate(url):
+        calls.append(url)
+        return "Page Content:\nAntarktika adalah gurun es yang sangat dingin."
+
+    registry = _registry_with("browser_navigate", browser_navigate)
+    machine = StateMachine(initial_state=State.THINKING)
+    llm = FakeLLM(
+        [
+            LLMResponse(
+                text="Maaf, aku tidak punya kemampuan untuk membuka halaman web.",
+                tool_calls=[],
+            ),
+            LLMResponse(
+                text="Maaf, aku hanya bisa membuka Brave Browser saja dan tidak bisa membaca halaman.",
+                tool_calls=[],
+            ),
+            LLMResponse(text="Antarktika adalah gurun es yang sangat dingin.", tool_calls=[]),
+        ]
+    )
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        machine,
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_navigate"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(
+        orch._respond(
+            "iya kamu buka Brave Browser abis itu buka artikel tentang Antartika terus rangkum",
+            [{"role": "user", "content": "Tolong buka Wikipedia dan rangkum artikelnya"}],
+        )
+    )
+
+    assert reply == "Antarktika adalah gurun es yang sangat dingin."
+    assert calls == ["https://id.wikipedia.org/wiki/Antartika"]
+    assert len(llm.requests) == 3
+    final_messages, final_tools = llm.requests[-1]
+    assert final_tools is None
+    assert any(m.get("role") == "tool" for m in final_messages)
+
+
+def test_idle_state_does_not_close_browser_session():
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        FakeLLM([]),
+        FakeTTS(),
+        ToolRegistry(),
+        StateMachine(initial_state=State.IDLE),
+    )
+    event = StateChangedEvent(
+        previous_state=State.SPEAKING,
+        state=State.IDLE,
+        trigger=StateTrigger.AUDIO_DONE,
+    )
+
+    with patch("verse.tools.builtin.browser.browser_close") as mock_close:
+        orch._on_state_changed(event)
+
+    mock_close.assert_not_called()
 
 
 def test_handle_audio_uses_local_intent_before_llm():

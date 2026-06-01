@@ -3,6 +3,19 @@ from __future__ import annotations
 from verse.intent.classifier import IntentCategory
 
 
+BROWSER_TOOL_ORDER = [
+    "browser_navigate",
+    "browser_read_current",
+    "browser_inspect",
+    "browser_click",
+    "browser_input",
+    "browser_scroll",
+    "browser_go_back",
+    "browser_close",
+    "web_search",
+]
+
+
 class ToolSelector:
     """
     Selects a minimal subset of tools (0 to 5) from the registry based on
@@ -32,11 +45,7 @@ class ToolSelector:
         elif category == IntentCategory.APP:
             selected.update(["open_app", "close_app"])
         elif category == IntentCategory.BROWSER:
-            selected.update([
-                "web_search", "open_url", "browser_navigate", "browser_inspect",
-                "browser_click", "browser_input", "browser_scroll",
-                "browser_go_back", "browser_close",
-            ])
+            return [tool for tool in BROWSER_TOOL_ORDER if tool in self.all_tools]
         elif category == IntentCategory.CALENDAR:
             selected.update(["read_calendar", "create_event"])
         elif category == IntentCategory.NOTES:
@@ -70,11 +79,7 @@ class ToolSelector:
         if any(k in text for k in ("brightness", "kecerahan", "redup")):
             selected.update(["set_brightness", "get_brightness"])
         if any(k in text for k in ("browser", "chrome", "safari", "website", "cari di web", "google", "web")):
-            selected.update([
-                "web_search", "open_url", "browser_navigate", "browser_inspect",
-                "browser_click", "browser_input", "browser_scroll",
-                "browser_go_back", "browser_close",
-            ])
+            selected.update(BROWSER_TOOL_ORDER)
 
         # Filter the selected set to tools that are actually enabled in the workspace
         enabled_selected = [t for t in self.all_tools if t in selected]

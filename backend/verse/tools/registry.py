@@ -742,6 +742,12 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             },
             handler=browser.browser_navigate,
         ),
+        "browser_read_current": Tool(
+            name="browser_read_current",
+            description="Read visible text from the current active browser page without navigating.",
+            parameters={"type": "object", "properties": {}},
+            handler=browser.browser_read_current,
+        ),
         "browser_click": Tool(
             name="browser_click",
             description="Click an element (button, link, input) on the active page using a selector.",

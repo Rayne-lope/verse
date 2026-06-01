@@ -77,6 +77,7 @@ class ToolsConfig:
             "set_brightness",
             "get_brightness",
             "browser_navigate",
+            "browser_read_current",
             "browser_click",
             "browser_input",
             "browser_close",

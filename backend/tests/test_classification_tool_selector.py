@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from verse.config import AppConfig
+from verse.config import AppConfig, DebugConfig, MemoryConfig, ToolsConfig
 from verse.intent import IntentCategory, fast_intent_classifier
 from verse.tools import ToolSelector
 from verse.orchestrator import Orchestrator, build_orchestrator
@@ -78,7 +78,8 @@ def test_selector_includes_full_browser_toolset():
     BROWSER category must not be truncated to 5 tools (inspect is required for
     numeric-ID clicks)."""
     browser_tools = [
-        "web_search", "open_url", "browser_navigate", "browser_inspect",
+        "open_app", "close_app", "web_search", "open_url",
+        "browser_navigate", "browser_read_current", "browser_inspect",
         "browser_click", "browser_input", "browser_scroll", "browser_go_back",
         "browser_close",
     ]
@@ -86,11 +87,30 @@ def test_selector_includes_full_browser_toolset():
 
     selected = selector.select("cari mobil listrik dan klik hasil pertama", IntentCategory.BROWSER)
     # The newly implemented tools must be present.
+    assert selected[:8] == [
+        "browser_navigate",
+        "browser_read_current",
+        "browser_inspect",
+        "browser_click",
+        "browser_input",
+        "browser_scroll",
+        "browser_go_back",
+        "browser_close",
+    ]
     assert "browser_inspect" in selected
+    assert "browser_read_current" in selected
     assert "browser_scroll" in selected
     assert "browser_go_back" in selected
+    assert "open_app" not in selected
+    assert "open_url" not in selected
+    assert "close_app" not in selected
     # Browser turns get a higher cap so the full toolset survives.
     assert len(selected) > 5
+
+    default_selector = ToolSelector(ToolsConfig().enabled)
+    default_selected = default_selector.select("buka wikipedia dan rangkum artikelnya", IntentCategory.BROWSER)
+    assert "browser_read_current" in default_selected
+    assert "browser_go_back" in default_selected
 
     # Non-browser categories keep the tight 5-tool cap.
     capped = selector.select("buka spotify, setel musik, pengingat, pesan, catatan", IntentCategory.CHAT)
@@ -123,8 +143,13 @@ def test_tool_selector():
 @pytest.mark.anyio
 async def test_orchestrator_classification_and_routing():
     # Setup orchestrator with mocks
-    config = AppConfig()
-    orchestrator = build_orchestrator(config)
+    config = AppConfig(
+        debug=DebugConfig(session_logging=False),
+        memory=MemoryConfig(enabled=False),
+    )
+    with patch("verse.persistence.db.default_store") as mock_default_store:
+        orchestrator = build_orchestrator(config)
+    mock_default_store.assert_not_called()
     
     # Mock self.llm.chat
     mock_chat = AsyncMock()

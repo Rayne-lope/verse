@@ -70,6 +70,22 @@ def _ensure_browser() -> Page:
     return _page
 
 
+def _extract_visible_text(page: Page) -> str:
+    content = page.evaluate("""() => {
+        const selectors = ['script', 'style', 'svg', 'noscript', 'iframe'];
+        selectors.forEach(sel => {
+            document.querySelectorAll(sel).forEach(el => el.remove());
+        });
+        return document.body.innerText;
+    }""")
+
+    content = content or ""
+    cleaned = "\n".join(line.strip() for line in content.splitlines() if line.strip())
+    if len(cleaned) > 8000:
+        cleaned = cleaned[:8000] + "\n\n[Content truncated...]"
+    return cleaned
+
+
 def _browser_navigate_impl(url: str) -> str:
     """Navigate to a URL and return the cleaned textual contents of the page."""
     try:
@@ -81,21 +97,24 @@ def _browser_navigate_impl(url: str) -> str:
         page.goto(target, wait_until="domcontentloaded", timeout=20000)
         page.wait_for_timeout(1500)  # Brief settle for SPA/dynamic content
 
-        # Clean non-text tags and return page body
-        content = page.evaluate("""() => {
-            const selectors = ['script', 'style', 'svg', 'noscript', 'iframe'];
-            selectors.forEach(sel => {
-                document.querySelectorAll(sel).forEach(el => el.remove());
-            });
-            return document.body.innerText;
-        }""")
-
-        cleaned = "\n".join(line.strip() for line in content.splitlines() if line.strip())
-        if len(cleaned) > 8000:
-            cleaned = cleaned[:8000] + "\n\n[Content truncated...]"
+        cleaned = _extract_visible_text(page)
         return f"Successfully navigated to {target}.\n\nPage Content:\n{cleaned}"
     except Exception as exc:
         return f"Failed to navigate to {url}: {exc}"
+
+
+def _browser_read_current_impl() -> str:
+    """Read visible text from the active browser page without navigating."""
+    try:
+        page = _ensure_browser()
+        page.wait_for_timeout(500)
+        cleaned = _extract_visible_text(page)
+        current_url = getattr(page, "url", "") or "the current page"
+        if not cleaned:
+            return f"Successfully read {current_url}, but no visible text was found."
+        return f"Successfully read {current_url}.\n\nPage Content:\n{cleaned}"
+    except Exception as exc:
+        return f"Failed to read current page: {exc}"
 
 
 def _browser_click_impl(selector: str) -> str:
@@ -316,6 +335,10 @@ def _browser_go_back_impl() -> str:
 
 def browser_navigate(url: str) -> str:
     return _run_on_browser_thread(_browser_navigate_impl, url)
+
+
+def browser_read_current() -> str:
+    return _run_on_browser_thread(_browser_read_current_impl)
 
 
 def browser_click(selector: str) -> str:
