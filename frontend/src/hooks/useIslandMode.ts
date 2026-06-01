@@ -71,9 +71,20 @@ export function useIslandMode({ state, optimisticListening = false }: UseIslandM
     mode = "error";
   } else if (isExpanded) {
     mode = "expanded";
-  } else if (state === "listening" || optimisticListening) {
+  } else if (
+    state === "listening" ||
+    state === "endpointing" ||
+    state === "transcribing" ||
+    optimisticListening
+  ) {
     mode = "listening";
-  } else if (state === "speaking" || state === "thinking" || state === "preparing_audio") {
+  } else if (
+    state === "speaking" ||
+    state === "thinking" ||
+    state === "preparing_audio" ||
+    state === "acting" ||
+    state === "interrupted"
+  ) {
     mode = "speaking";
   } else {
     mode = "compact";

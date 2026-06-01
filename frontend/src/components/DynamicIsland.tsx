@@ -129,7 +129,12 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
     onOpenSettings();
   }, [onOpenSettings]);
 
-  const micActive = Boolean(micStatus?.active || state === "listening");
+  const micActive = Boolean(
+    micStatus?.active ||
+      state === "listening" ||
+      state === "endpointing" ||
+      state === "transcribing"
+  );
 
   return (
     <div className="island-stage" data-state={state} data-mode={mode}>
@@ -176,13 +181,36 @@ export function DynamicIsland({ onOpenSettings, onOpenCanvas }: DynamicIslandPro
               <CompactMode state={state} connected={connected} hasNotch={hasNotch} />
             )}
             {mode === "listening" && (
-              <ListeningMode audioLevel={audioLevel} hasNotch={hasNotch} />
+              <ListeningMode
+                audioLevel={audioLevel}
+                statusText={
+                  state === "endpointing"
+                    ? "Endpointing"
+                    : state === "transcribing"
+                    ? "Transcribing"
+                    : undefined
+                }
+                hasNotch={hasNotch}
+              />
             )}
             {mode === "speaking" && (
               <SpeakingMode
                 audioLevel={audioLevel}
-                thinking={state === "thinking"}
+                thinking={state === "thinking" || state === "acting"}
                 preparing={state === "preparing_audio"}
+                statusText={
+                  state === "thinking"
+                    ? "Thinking"
+                    : state === "acting"
+                    ? "Acting"
+                    : state === "preparing_audio"
+                    ? "Preparing"
+                    : state === "speaking"
+                    ? "Speaking"
+                    : state === "interrupted"
+                    ? "Interrupted"
+                    : undefined
+                }
                 hasNotch={hasNotch}
               />
             )}

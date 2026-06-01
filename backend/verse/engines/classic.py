@@ -188,3 +188,8 @@ class ClassicPipelineEngine(VoiceEngine):
     def deactivate_conversation(self) -> None:
         if hasattr(self.orchestrator, "deactivate_conversation"):
             self.orchestrator.deactivate_conversation()
+
+    @property
+    def current_turn_id(self) -> str | int | None:
+        return self.orchestrator._current_turn_id
+

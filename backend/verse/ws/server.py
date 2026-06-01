@@ -38,6 +38,7 @@ class WebSocketServer:
         self._config: Any | None = None
         self._mic_status: dict[str, Any] | None = None
         self._now_playing: dict[str, Any] | None = None
+        self._engine: Any | None = None
 
     @property
     def client_count(self) -> int:
@@ -72,15 +73,18 @@ class WebSocketServer:
         for client in dead:
             self.unregister(client)
 
-    def attach_state_machine(self, machine: StateMachine) -> Callable[[], None]:
+    def attach_state_machine(self, machine: StateMachine, engine: Any | None = None) -> Callable[[], None]:
         from verse.state import State
         from verse.ws.protocol import error_message
 
+        self._engine = engine
+
         def on_state_changed(event: StateChangedEvent) -> None:
-            self.enqueue(state_change_message(event))
+            turn_id = getattr(self._engine, "current_turn_id", None)
+            self.enqueue(state_change_message(event, turn_id=turn_id))
             if event.state == State.ERROR:
                 msg = event.metadata.get("message", "Unknown error")
-                self.enqueue(error_message(msg))
+                self.enqueue(error_message(msg, turn_id=turn_id))
 
         self._state_machine = machine
         self._unsubscribe_state = machine.subscribe(on_state_changed)

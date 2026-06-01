@@ -6,9 +6,10 @@ import { Waveform } from "./Waveform";
 interface ListeningProps {
   audioLevel: number;
   hasNotch?: boolean;
+  statusText?: string;
 }
 
-function ListeningInner({ audioLevel, hasNotch = false }: ListeningProps) {
+function ListeningInner({ audioLevel, hasNotch = false, statusText }: ListeningProps) {
   return (
     <motion.div
       key="listening-content"
@@ -20,7 +21,7 @@ function ListeningInner({ audioLevel, hasNotch = false }: ListeningProps) {
       exit="exit"
     >
       <div className="island-leading">
-        <span className="island-state-label">Listening</span>
+        <span className="island-state-label">{statusText || "Listening"}</span>
       </div>
 
       {hasNotch && <div className="island-notch-spacer" />}

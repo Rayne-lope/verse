@@ -49,7 +49,7 @@ class LatencyTracker:
                 "llm_first_token_ms": self._ms_between("llm_request_start", "llm_first_token"),
                 "llm_total_ms": self._ms_between("llm_request_start", "llm_done"),
                 "tts_first_audio_ms": self._ms_between("tts_request_start", "tts_first_audio"),
-                "tts_total_ms": self._ms_between("tts_request_start", "tts_first_audio"),
+                "tts_total_ms": self._ms_between("tts_request_start", "tts_done"),
                 "playback_ms": self._ms_between("playback_start", "playback_done"),
                 "speech_end_to_first_audio_ms": self._speech_end_to_first_audio_ms(),
                 "tools_ms": self._tool_total_ms(),

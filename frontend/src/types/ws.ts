@@ -1,19 +1,25 @@
 export type VerseState =
   | "idle"
   | "listening"
+  | "endpointing"
+  | "transcribing"
   | "thinking"
+  | "acting"
   | "preparing_audio"
   | "speaking"
+  | "interrupted"
   | "error";
 
 export interface StateChangeMessage {
   type: "state_change";
   state: VerseState;
+  turn_id?: number | string | null;
 }
 
 export interface AudioLevelMessage {
   type: "audio_level";
   level: number;
+  turn_id?: number | string | null;
 }
 
 export interface MicStatusMessage {
@@ -26,40 +32,47 @@ export interface TranscriptMessage {
   type: "transcript";
   text: string;
   partial: boolean;
+  turn_id?: number | string | null;
 }
 
 export interface UserPartialTranscriptMessage {
   type: "user_partial_transcript";
   text: string;
   stability: number | null;
+  turn_id?: number | string | null;
 }
 
 export interface UserFinalTranscriptMessage {
   type: "user_final_transcript";
   text: string;
+  turn_id?: number | string | null;
 }
 
 export interface AssistantTextMessage {
   type: "assistant_text";
   text: string;
+  turn_id?: number | string | null;
 }
 
 export interface ToolExecutedMessage {
   type: "tool_executed";
   name: string;
   result: unknown;
+  turn_id?: number | string | null;
 }
 
 export interface ErrorMessage {
   type: "error";
   message: string;
   recoverable: boolean;
+  turn_id?: number | string | null;
 }
 
 export interface PipelineEventMessage {
   type: "pipeline_event";
   stage: string;
   event: string;
+  turn_id?: number | string | null;
   [key: string]: unknown;
 }
 
@@ -67,6 +80,7 @@ export interface VADUpdateMessage {
   type: "vad_update";
   state: string;
   probability: number;
+  turn_id?: number | string | null;
 }
 
 export interface VerseConfig {

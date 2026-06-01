@@ -37,3 +37,9 @@ class VoiceEngine(ABC):
     async def close(self) -> None:
         """Gracefully release session connections and local resources."""
         pass
+
+    @property
+    def current_turn_id(self) -> str | int | None:
+        """Get the currently active turn ID."""
+        return None
+

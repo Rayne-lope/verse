@@ -21,12 +21,26 @@ export function Bubble({ onOpenSettings }: BubbleProps) {
 
   const orbRef = useRef<HTMLDivElement>(null);
   const activationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const active = state === "listening" || state === "preparing_audio" || state === "speaking";
+  const active =
+    state === "listening" ||
+    state === "endpointing" ||
+    state === "transcribing" ||
+    state === "preparing_audio" ||
+    state === "speaking";
   const canToggleConversation = connectionStatus === "open";
+  const visualState =
+    state === "endpointing" || state === "transcribing"
+      ? "listening"
+      : state === "acting"
+      ? "thinking"
+      : state === "interrupted"
+      ? "idle"
+      : state;
+
   useAudioReactiveOrb(orbRef, audioLevel, active);
-  useMouseGaze(orbRef, state);
-  useSphereMode(orbRef, state);
-  useSleepMode(orbRef, state);
+  useMouseGaze(orbRef, visualState);
+  useSphereMode(orbRef, visualState);
+  useSleepMode(orbRef, visualState);
 
   const clearActivation = useCallback(() => {
     if (activationTimerRef.current !== null) {
@@ -87,13 +101,13 @@ export function Bubble({ onOpenSettings }: BubbleProps) {
       <div
         ref={orbRef}
         className="orb"
-        data-state={state}
+        data-state={visualState}
         data-clickable={canToggleConversation ? "" : undefined}
         data-activation={activation ?? undefined}
         role="button"
         tabIndex={canToggleConversation ? 0 : -1}
         aria-disabled={!canToggleConversation}
-        aria-label={`Verse state: ${state}`}
+        aria-label={`Verse state: ${visualState}`}
         onPointerDown={(event) => event.stopPropagation()}
         onClick={handleBubbleClick}
         onKeyDown={handleBubbleKeyDown}

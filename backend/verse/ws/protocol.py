@@ -20,28 +20,46 @@ MSG_USER_PARTIAL_TRANSCRIPT = "user_partial_transcript"
 MSG_USER_FINAL_TRANSCRIPT = "user_final_transcript"
 
 
-def state_change_message(event: StateChangedEvent) -> dict[str, Any]:
-    return {"type": MSG_STATE_CHANGE, "state": str(event.state)}
+def state_change_message(event: StateChangedEvent, *, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_STATE_CHANGE, "state": str(event.state)}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def audio_level_message(level: float) -> dict[str, Any]:
-    return {"type": MSG_AUDIO_LEVEL, "level": float(level)}
+def audio_level_message(level: float, *, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_AUDIO_LEVEL, "level": float(level)}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def transcript_message(text: str, *, partial: bool = False) -> dict[str, Any]:
-    return {"type": MSG_TRANSCRIPT, "text": text, "partial": partial}
+def transcript_message(text: str, *, partial: bool = False, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_TRANSCRIPT, "text": text, "partial": partial}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def assistant_text_message(text: str) -> dict[str, Any]:
-    return {"type": MSG_ASSISTANT_TEXT, "text": text}
+def assistant_text_message(text: str, *, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_ASSISTANT_TEXT, "text": text}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def tool_executed_message(name: str, result: Any) -> dict[str, Any]:
-    return {"type": MSG_TOOL_EXECUTED, "name": name, "result": result}
+def tool_executed_message(name: str, result: Any, *, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_TOOL_EXECUTED, "name": name, "result": result}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def error_message(message: str, *, recoverable: bool = True) -> dict[str, Any]:
-    return {"type": MSG_ERROR, "message": message, "recoverable": recoverable}
+def error_message(message: str, *, recoverable: bool = True, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_ERROR, "message": message, "recoverable": recoverable}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
 def mic_status_message(active: bool, mode: str = "off") -> dict[str, Any]:
@@ -51,13 +69,16 @@ def mic_status_message(active: bool, mode: str = "off") -> dict[str, Any]:
 MSG_PIPELINE_EVENT = "pipeline_event"
 
 
-def pipeline_event_message(stage: str, event: str, **kwargs: Any) -> dict[str, Any]:
-    return {
+def pipeline_event_message(stage: str, event: str, *, turn_id: str | int | None = None, **kwargs: Any) -> dict[str, Any]:
+    msg = {
         "type": MSG_PIPELINE_EVENT,
         "stage": stage,
         "event": event,
         **kwargs
     }
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
 MSG_CONFIG_DATA = "config_data"
@@ -118,10 +139,16 @@ def api_key_set_message(key_name: str, success: bool) -> dict[str, Any]:
 
 
 def user_partial_transcript_message(
-    text: str, stability: float | None = None
+    text: str, stability: float | None = None, *, turn_id: str | int | None = None
 ) -> dict[str, Any]:
-    return {"type": MSG_USER_PARTIAL_TRANSCRIPT, "text": text, "stability": stability}
+    msg = {"type": MSG_USER_PARTIAL_TRANSCRIPT, "text": text, "stability": stability}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg
 
 
-def user_final_transcript_message(text: str) -> dict[str, Any]:
-    return {"type": MSG_USER_FINAL_TRANSCRIPT, "text": text}
+def user_final_transcript_message(text: str, *, turn_id: str | int | None = None) -> dict[str, Any]:
+    msg = {"type": MSG_USER_FINAL_TRANSCRIPT, "text": text}
+    if turn_id is not None:
+        msg["turn_id"] = turn_id
+    return msg

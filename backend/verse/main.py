@@ -134,31 +134,35 @@ def _wire_callbacks(engine, ws_server: WebSocketServer) -> None:
     # partial=False default keeps Orchestrator (1-arg call) backward compatible;
     # GeminiLiveEngine calls on_transcript(text, partial=True/False) for deltas.
     engine.on_transcript = lambda text, partial=False: ws_server.enqueue(
-        transcript_message(text, partial=partial)
+        transcript_message(text, partial=partial, turn_id=getattr(engine, "current_turn_id", None))
     )
     engine.on_assistant_text = lambda text: ws_server.enqueue(
-        assistant_text_message(text)
+        assistant_text_message(text, turn_id=getattr(engine, "current_turn_id", None))
     )
     engine.on_tool_executed = lambda name, res: ws_server.enqueue(
-        tool_executed_message(name, res)
+        tool_executed_message(name, res, turn_id=getattr(engine, "current_turn_id", None))
     )
-    engine.on_audio_level = lambda level: ws_server.enqueue(audio_level_message(level))
+    engine.on_audio_level = lambda level: ws_server.enqueue(
+        audio_level_message(level, turn_id=getattr(engine, "current_turn_id", None))
+    )
     engine.on_vad_state = lambda state, prob: ws_server.enqueue(
-        {"type": "vad_update", "state": state, "probability": prob}
+        {"type": "vad_update", "state": state, "probability": prob, "turn_id": getattr(engine, "current_turn_id", None)}
     )
     engine.on_pipeline_event = lambda stage, event, metadata: ws_server.enqueue(
-        pipeline_event_message(stage, event, **metadata)
+        pipeline_event_message(stage, event, turn_id=getattr(engine, "current_turn_id", None), **metadata)
     )
     # Streaming STT partial/final transcript callbacks (P6)
     if hasattr(engine, "on_user_partial_transcript"):
         engine.on_user_partial_transcript = (
             lambda text, stability=None: ws_server.enqueue(
-                user_partial_transcript_message(text, stability)
+                user_partial_transcript_message(text, stability, turn_id=getattr(engine, "current_turn_id", None))
             )
         )
     if hasattr(engine, "on_user_final_transcript"):
         engine.on_user_final_transcript = (
-            lambda text: ws_server.enqueue(user_final_transcript_message(text))
+            lambda text: ws_server.enqueue(
+                user_final_transcript_message(text, turn_id=getattr(engine, "current_turn_id", None))
+            )
         )
 
 
@@ -251,7 +255,7 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
     ws_server._config = config
 
     engine, is_gemini = _build_engine(config, debug_logger=debug_logger)
-    ws_server.attach_state_machine(engine.state_machine)
+    ws_server.attach_state_machine(engine.state_machine, engine)
     _wire_callbacks(engine, ws_server)
     always_on_runtime = None
 
@@ -269,7 +273,7 @@ async def _startup(config: AppConfig, ws_server: WebSocketServer, debug_logger =
                 )
             )
             engine, _ = _build_engine(config, force_classic=True, debug_logger=debug_logger)
-            ws_server.attach_state_machine(engine.state_machine)
+            ws_server.attach_state_machine(engine.state_machine, engine)
             _wire_callbacks(engine, ws_server)
 
     if config_holder[0].voice.engine != "gemini_live":

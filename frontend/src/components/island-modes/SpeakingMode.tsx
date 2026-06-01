@@ -9,10 +9,11 @@ interface SpeakingProps {
   thinking?: boolean;
   /** TTS has started, but playback has not produced audio yet. */
   preparing?: boolean;
+  statusText?: string;
   hasNotch?: boolean;
 }
 
-function SpeakingInner({ audioLevel, thinking = false, preparing = false, hasNotch = false }: SpeakingProps) {
+function SpeakingInner({ audioLevel, thinking = false, preparing = false, statusText, hasNotch = false }: SpeakingProps) {
   return (
     <motion.div
       key="speaking-content"
@@ -26,7 +27,7 @@ function SpeakingInner({ audioLevel, thinking = false, preparing = false, hasNot
     >
       <div className="island-leading">
         <span className="island-state-label">
-          {thinking ? "Thinking" : preparing ? "Preparing" : "Speaking"}
+          {statusText || (thinking ? "Thinking" : preparing ? "Preparing" : "Speaking")}
         </span>
       </div>
 

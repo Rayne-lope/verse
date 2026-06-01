@@ -61,6 +61,7 @@ class LiveRealtimeEngine(VoiceEngine):
         self._player = None
 
         # Per-turn state
+        self._current_turn_id = 0
         self._speaking_started = False
         self._input_transcript = ""
         self._output_transcript = ""
@@ -68,6 +69,10 @@ class LiveRealtimeEngine(VoiceEngine):
     @property
     def state_machine(self) -> StateMachine:
         return self._state_machine
+
+    @property
+    def current_turn_id(self) -> str | int | None:
+        return self._current_turn_id
 
     # ------------------------------------------------------------------
     # VoiceEngine Interface Compliance
@@ -174,6 +179,7 @@ class LiveRealtimeEngine(VoiceEngine):
         if not self._state_machine.is_idle:
             return False
 
+        self._current_turn_id += 1
         self._clear_audio_queue()
         self._state_machine.hotkey_pressed()   # IDLE → LISTENING
         self._speaking_started = False

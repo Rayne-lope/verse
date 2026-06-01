@@ -54,6 +54,7 @@ export function WebSocketProvider({
   const backoffRef = useRef(INITIAL_BACKOFF_MS);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closedByUnmountRef = useRef(false);
+  const activeTurnIdRef = useRef<number | string | null>(null);
 
   const handleMessage = useCallback((raw: string) => {
     let message: IncomingMessage;
@@ -61,6 +62,28 @@ export function WebSocketProvider({
       message = JSON.parse(raw) as IncomingMessage;
     } catch {
       return;
+    }
+
+    const msgTurnId = (message as any).turn_id;
+    if (msgTurnId !== undefined && msgTurnId !== null) {
+      const current = activeTurnIdRef.current;
+      if (current === null) {
+        activeTurnIdRef.current = msgTurnId;
+      } else if (typeof msgTurnId === "number" && typeof current === "number") {
+        if (msgTurnId < current) {
+          console.debug(`[useWebSocket] Ignoring stale message of type ${message.type} (msg turn: ${msgTurnId}, active turn: ${current})`);
+          return;
+        } else if (msgTurnId > current) {
+          activeTurnIdRef.current = msgTurnId;
+        }
+      } else if (msgTurnId !== current) {
+        if (message.type === "state_change" && message.state === "listening") {
+          activeTurnIdRef.current = msgTurnId;
+        } else {
+          console.debug(`[useWebSocket] Ignoring message of type ${message.type} with different turn_id: ${msgTurnId}`);
+          return;
+        }
+      }
     }
 
     if (import.meta.env.DEV) {
@@ -121,6 +144,28 @@ export function WebSocketProvider({
       case "api_key_set":
         break;
       case "pipeline_event":
+        if (message.stage === "vad" && message.event === "speech_started") {
+          setLastState("listening");
+        } else if (message.stage === "vad" && message.event === "speech_ended") {
+          setLastState("endpointing");
+        } else if (message.stage === "stt" && message.event === "started") {
+          setLastState("transcribing");
+        } else if (message.stage === "stt" && message.event === "completed") {
+          setLastState("thinking");
+        } else if (message.stage === "llm" && message.event === "started") {
+          setLastState("thinking");
+        } else if (message.stage === "tool" && message.event === "started") {
+          setLastState("acting");
+        } else if (message.stage === "tts" && message.event === "started") {
+          setLastState("preparing_audio");
+        } else if (message.stage === "tts" && message.event === "first_audio") {
+          setLastState("speaking");
+        } else if (message.stage === "playback" && message.event === "started") {
+          setLastState("speaking");
+        } else if (message.stage === "tts" && message.event === "interrupted") {
+          setLastState("interrupted");
+        }
+        break;
       case "vad_update":
         break;
       default:
