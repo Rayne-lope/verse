@@ -79,6 +79,7 @@ def _parse_arguments(raw_arguments: Any) -> dict[str, Any]:
 
 def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
     from verse.tools.builtin import (
+        beads,
         browser,
         calendar,
         contacts,
@@ -94,6 +95,192 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
     )
 
     catalog: dict[str, Tool] = {
+        # ── Beads / Workstation integration ──────────────────────────────────
+        "get_workspace_context": Tool(
+            name="get_workspace_context",
+            description=(
+                "Get the currently active project workspace (synced with Workstation app): "
+                "project name, folder path, and a summary of issue counts by status. "
+                "Call this first to understand which project the user is asking about."
+            ),
+            parameters={"type": "object", "properties": {}},
+            handler=beads.get_workspace_context,
+        ),
+        "list_issues": Tool(
+            name="list_issues",
+            description=(
+                "List issues in the active workspace. Optionally filter by status "
+                "(open, in_progress, review, done) and/or type (task, bug, feature, epic)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["open", "in_progress", "review", "done"],
+                        "description": "Filter by issue status.",
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["task", "bug", "feature", "epic"],
+                        "description": "Filter by issue type.",
+                    },
+                },
+            },
+            handler=beads.list_issues,
+        ),
+        "ready_issues": Tool(
+            name="ready_issues",
+            description=(
+                "List issues that are ready to work on right now — all blockers resolved, "
+                "status is open. Use this to recommend what to tackle next."
+            ),
+            parameters={"type": "object", "properties": {}},
+            handler=beads.ready_issues,
+        ),
+        "show_issue": Tool(
+            name="show_issue",
+            description=(
+                "Show the full details of a specific issue: description, status, priority, "
+                "assignee, acceptance criteria, dependencies, and notes."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "issue_id": {
+                        "type": "string",
+                        "description": "The issue ID, e.g. 'verse-42'.",
+                    }
+                },
+                "required": ["issue_id"],
+            },
+            handler=beads.show_issue,
+        ),
+        "search_issues": Tool(
+            name="search_issues",
+            description="Search issues by keyword across titles, descriptions, and notes.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search keyword or phrase.",
+                    }
+                },
+                "required": ["query"],
+            },
+            handler=beads.search_issues,
+        ),
+        "create_issue": Tool(
+            name="create_issue",
+            description=(
+                "Create a new issue in the active workspace. "
+                "Use type='epic' for large initiatives, 'feature' for new capabilities, "
+                "'task' for work items, 'bug' for defects. "
+                "Priority: 0=critical, 1=high, 2=medium, 3=low, 4=backlog."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short summary of the issue (one line).",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Why this issue exists and what needs to be done.",
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["task", "bug", "feature", "epic"],
+                        "description": "Issue type (default: 'task').",
+                    },
+                    "priority": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4,
+                        "description": "Priority 0 (critical) to 4 (backlog). Default 2.",
+                    },
+                    "acceptance": {
+                        "type": "string",
+                        "description": "Optional acceptance criteria (what 'done' looks like).",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional supplementary notes or context.",
+                    },
+                },
+                "required": ["title", "description"],
+            },
+            handler=beads.create_issue,
+        ),
+        "add_dependency": Tool(
+            name="add_dependency",
+            description=(
+                "Add a dependency between two issues: issue_id must be done AFTER depends_on_id. "
+                "In other words, depends_on_id blocks issue_id."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "issue_id": {
+                        "type": "string",
+                        "description": "The issue that depends on another (the child/blocked one).",
+                    },
+                    "depends_on_id": {
+                        "type": "string",
+                        "description": "The issue that must be completed first (the blocker).",
+                    },
+                },
+                "required": ["issue_id", "depends_on_id"],
+            },
+            handler=beads.add_dependency,
+        ),
+        "close_issues": Tool(
+            name="close_issues",
+            description="Mark one or more issues as done.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "issue_ids": {
+                        "type": "string",
+                        "description": "Space-separated issue IDs, e.g. 'verse-12 verse-13'.",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Optional reason or note for closing.",
+                    },
+                },
+                "required": ["issue_ids"],
+            },
+            handler=beads.close_issues,
+        ),
+        "update_issue": Tool(
+            name="update_issue",
+            description=(
+                "Update an existing issue: change its title, description, or notes, "
+                "or mark it as in-progress (claim)."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "issue_id": {
+                        "type": "string",
+                        "description": "The issue ID to update.",
+                    },
+                    "title": {"type": "string", "description": "New title."},
+                    "description": {"type": "string", "description": "New description."},
+                    "notes": {"type": "string", "description": "Additional notes to set."},
+                    "claim": {
+                        "type": "boolean",
+                        "description": "Set to true to mark the issue as in-progress.",
+                    },
+                },
+                "required": ["issue_id"],
+            },
+            handler=beads.update_issue,
+        ),
+        # ── Music ─────────────────────────────────────────────────────────────
         "play_music": Tool(
             name="play_music",
             description=(
