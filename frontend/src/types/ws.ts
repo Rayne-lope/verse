@@ -117,6 +117,7 @@ export interface NowPlayingMessage {
   player: string;
   track: string;
   artist: string;
+  artwork_url?: string | null;
 }
 
 export type IncomingMessage =

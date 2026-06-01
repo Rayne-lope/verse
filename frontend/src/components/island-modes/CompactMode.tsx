@@ -120,9 +120,19 @@ function CompactInner({ state, connected, hasNotch = false }: CompactProps) {
           exit="exit"
         >
           <div className="island-leading">
-            {isSpotify
-              ? <span className="island-spotify-icon"><SpotifyIcon /></span>
-              : <MusicIcon />}
+            {nowPlaying.artwork_url
+              ? (
+                <span className="island-spotify-icon">
+                  <img
+                    src={nowPlaying.artwork_url}
+                    alt={nowPlaying.track}
+                    className="island-artwork-img"
+                  />
+                </span>
+              )
+              : isSpotify
+                ? <span className="island-spotify-icon"><SpotifyIcon /></span>
+                : <MusicIcon />}
           </div>
           {hasNotch && <div className="island-notch-spacer" />}
           <div className="island-trailing">

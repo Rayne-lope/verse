@@ -559,3 +559,11 @@
   50%       { opacity: 1;    filter: brightness(1.25) drop-shadow(0 0 4px oklch(76% 0.22 142 / 0.5)); }
 }
 
+.island-artwork-img {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  object-fit: cover;
+  display: block;
+}
+
