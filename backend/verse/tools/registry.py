@@ -122,6 +122,49 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             parameters={"type": "object", "properties": {}},
             handler=spotify.pause_music,
         ),
+        "set_spotify_volume": Tool(
+            name="set_spotify_volume",
+            description="Set Spotify's internal sound playback volume level.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "level": {
+                        "type": "integer",
+                        "description": "The target volume level (0-100).",
+                    }
+                },
+                "required": ["level"],
+            },
+            handler=spotify.set_spotify_volume,
+        ),
+        "get_spotify_volume": Tool(
+            name="get_spotify_volume",
+            description="Get the current internal volume level of Spotify (0-100).",
+            parameters={"type": "object", "properties": {}},
+            handler=spotify.get_spotify_volume,
+        ),
+        "skip_music": Tool(
+            name="skip_music",
+            description="Skip to the next or previous track on Spotify.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["next", "previous"],
+                        "description": "The direction to skip, either 'next' or 'previous'.",
+                    }
+                },
+                "required": ["direction"],
+            },
+            handler=spotify.skip_music,
+        ),
+        "get_now_playing": Tool(
+            name="get_now_playing",
+            description="Retrieve details about the song/track currently playing on Spotify.",
+            parameters={"type": "object", "properties": {}},
+            handler=spotify.get_now_playing,
+        ),
         "remember": Tool(
             name="remember",
             description=(

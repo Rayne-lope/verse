@@ -46,6 +46,10 @@ class ToolsConfig:
         default_factory=lambda: [
             "play_music",
             "pause_music",
+            "set_spotify_volume",
+            "get_spotify_volume",
+            "skip_music",
+            "get_now_playing",
             "open_app",
             "close_app",
             "web_search",

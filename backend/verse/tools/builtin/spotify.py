@@ -247,3 +247,51 @@ def _normalize_tokens(text: str) -> set[str]:
     return {t for t in tokens if t not in stop_words}
 
 
+def set_spotify_volume(level: int) -> str:
+    """Set the Spotify playback volume level (0-100)."""
+    try:
+        target = max(0, min(100, int(level)))
+        run_applescript(f'tell application "Spotify" to set sound volume to {target}')
+        return f"Spotify volume set to {target}%."
+    except Exception as exc:
+        return f"Could not set Spotify volume: {exc}. Make sure Spotify is running."
+
+
+def get_spotify_volume() -> str:
+    """Get the current Spotify playback volume level (0-100)."""
+    try:
+        vol = run_applescript('tell application "Spotify" to get sound volume')
+        return f"Spotify volume is at {vol}%."
+    except Exception as exc:
+        return f"Could not get Spotify volume: {exc}. Make sure Spotify is running."
+
+
+def skip_music(direction: str = "next") -> str:
+    """Skip to the next or previous track on Spotify."""
+    try:
+        clean_dir = direction.strip().lower()
+        if clean_dir == "previous":
+            run_applescript('tell application "Spotify" to previous track')
+            return "Skipped to the previous track."
+        else:
+            run_applescript('tell application "Spotify" to next track')
+            return "Skipped to the next track."
+    except Exception as exc:
+        return f"Could not skip music: {exc}. Make sure Spotify is running."
+
+
+def get_now_playing() -> str:
+    """Retrieve details about the track currently playing on Spotify."""
+    try:
+        state = run_applescript('tell application "Spotify" to player state')
+        if state != "playing":
+            return "Spotify is not currently playing."
+
+        name = run_applescript('tell application "Spotify" to name of current track')
+        artist = run_applescript('tell application "Spotify" to artist of current track')
+        album = run_applescript('tell application "Spotify" to album of current track')
+        return f"Currently playing '{name}' by {artist} from the album '{album}'."
+    except Exception as exc:
+        return f"Could not read player state: {exc}. Make sure Spotify is running."
+
+
