@@ -43,7 +43,8 @@ export function getShellSizes(notch: NotchHint | null, calibration: IslandCalibr
   const notchHeight = hasNotch ? (notch?.height && notch.height > 0 ? notch.height : 32) : 0;
 
   // Base dimensions adjusted by calibration scales
-  const baseWidth = hasNotch ? (notch?.width && notch.width > 0 ? notch.width : 190) : 140;
+  // Symmetrically expand the base width under a hardware notch to create left and right wings (40px each side)
+  const baseWidth = hasNotch ? ((notch?.width && notch.width > 0 ? notch.width : 190) + 80) : 140;
   const compactW = baseWidth * calibration.widthScale;
 
   // Desired vertical content heights

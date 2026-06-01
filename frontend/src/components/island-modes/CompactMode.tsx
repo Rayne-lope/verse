@@ -13,7 +13,27 @@ interface CompactProps {
 
 function CompactInner({ state, connected, hasNotch = false }: CompactProps) {
   if (connected) {
-    // Completely empty and black so it merges and is invisible when connected
+    if (hasNotch) {
+      return (
+        <motion.div
+          key="compact-idle-notch"
+          className="island-content island-content--compact-idle-notch"
+          data-split="true"
+          variants={contentVariants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+        >
+          <div className="island-leading">
+            <span className="island-idle-indicator" />
+          </div>
+          <div className="island-notch-spacer" />
+          <div className="island-trailing" />
+        </motion.div>
+      );
+    }
+
+    // Completely empty and black so it merges and is invisible when connected on non-notch screens
     return (
       <motion.div
         key="compact-empty"

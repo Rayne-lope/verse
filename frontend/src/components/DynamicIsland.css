@@ -213,6 +213,41 @@
   height: 100%;
 }
 
+.island-content--compact-idle-notch {
+  width: 100%;
+  height: 100%;
+}
+
+.island-idle-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(76% 0.18 200); /* Sleek high-end electric blue */
+  box-shadow: 
+    0 0 10px oklch(76% 0.18 200 / 0.8),
+    0 0 18px oklch(76% 0.18 200 / 0.4);
+  flex-shrink: 0;
+  animation: island-idle-breathe 2.4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes island-idle-breathe {
+  0%, 100% {
+    transform: scale(0.9) translateZ(0);
+    opacity: 0.4;
+    box-shadow: 
+      0 0 8px oklch(76% 0.18 200 / 0.65),
+      0 0 12px oklch(76% 0.18 200 / 0.25);
+  }
+  50% {
+    transform: scale(1.1) translateZ(0);
+    opacity: 1;
+    box-shadow: 
+      0 0 14px oklch(76% 0.18 200 / 0.95),
+      0 0 24px oklch(76% 0.18 200 / 0.55);
+  }
+}
+
 
 .island-status-dot {
   width: 8px;
