@@ -1529,7 +1529,8 @@ class Orchestrator:
                     self._latency_mark("tts_first_audio", bytes=len(audio))
                     self._output_audio_bytes = audio
                     if self._play is not None:
-                        self._transition_for_turn(turn, self.state_machine.playback_started)
+                        if self.state_machine.state == State.PREPARING_AUDIO:
+                            self._transition_for_turn(turn, self.state_machine.playback_started)
                         self._latency_mark("playback_start")
                         stop_event = threading.Event()
                         self._playback_stop_event = stop_event
@@ -1656,7 +1657,8 @@ class Orchestrator:
                         self._latency_mark("tts_first_audio", bytes=len(audio))
                         self._output_audio_bytes = audio
                         if self._play is not None:
-                            self._transition_for_turn(turn, self.state_machine.playback_started)
+                            if self.state_machine.state == State.PREPARING_AUDIO:
+                                self._transition_for_turn(turn, self.state_machine.playback_started)
                             self._latency_mark("playback_start")
                             stop_event = threading.Event()
                             self._playback_stop_event = stop_event
