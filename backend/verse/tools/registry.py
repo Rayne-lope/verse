@@ -782,6 +782,38 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             parameters={"type": "object", "properties": {}},
             handler=browser.browser_close,
         ),
+        "browser_inspect": Tool(
+            name="browser_inspect",
+            description="Inspect the current page to assign visual numeric badges to all interactive elements and return a summary of elements.",
+            parameters={"type": "object", "properties": {}},
+            handler=browser.browser_inspect,
+        ),
+        "browser_scroll": Tool(
+            name="browser_scroll",
+            description="Scroll the current page in the specified direction ('up', 'down', 'top', 'bottom').",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "enum": ["up", "down", "top", "bottom"],
+                        "description": "The direction to scroll.",
+                    },
+                    "amount": {
+                        "type": "string",
+                        "description": "Optional scroll amount: 'window', 'half', or a pixel number. Default is 'window'.",
+                    },
+                },
+                "required": ["direction"],
+            },
+            handler=browser.browser_scroll,
+        ),
+        "browser_go_back": Tool(
+            name="browser_go_back",
+            description="Navigate back one step in the browser's history.",
+            parameters={"type": "object", "properties": {}},
+            handler=browser.browser_go_back,
+        ),
     }
 
     names = enabled if enabled is not None else list(catalog)

@@ -80,6 +80,9 @@ class ToolsConfig:
             "browser_click",
             "browser_input",
             "browser_close",
+            "browser_inspect",
+            "browser_scroll",
+            "browser_go_back",
         ]
     )
     spotify_client_id: str = ""

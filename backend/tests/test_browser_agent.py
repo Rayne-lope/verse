@@ -1,12 +1,11 @@
 from unittest.mock import MagicMock, patch
 import pytest
-import os
 from verse.tools.builtin.browser import (
-    _find_brave_executable,
-    browser_navigate,
+    browser_inspect,
     browser_click,
     browser_input,
-    browser_close,
+    browser_scroll,
+    browser_go_back,
 )
 
 @pytest.fixture(autouse=True)
@@ -23,47 +22,10 @@ def cleanup_browser_state():
     b._page = None
 
 
-def test_find_brave_executable_mocked():
-    with patch("os.path.exists", return_value=True) as mock_exists:
-        path = _find_brave_executable()
-        assert path != ""
-        assert "Brave Browser" in path
-
-
-def test_browser_navigate_success():
+def test_browser_inspect_no_elements():
     mock_page = MagicMock()
     mock_page.is_closed.return_value = False
-    mock_page.evaluate.return_value = "Line 1\nLine 2\nLine 3"
-    
-    mock_context = MagicMock()
-    mock_context.pages = [mock_page]
-    
-    mock_pw_instance = MagicMock()
-    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
-    
-    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw, \
-         patch("verse.tools.builtin.browser._find_brave_executable", return_value="/Applications/Brave.app"):
-        
-        mock_sync_pw.return_value.start.return_value = mock_pw_instance
-        
-        res = browser_navigate("wikipedia.org")
-        assert "Successfully navigated to https://wikipedia.org" in res
-        assert "Line 1" in res
-        assert "Line 2" in res
-        assert "Line 3" in res
-        
-        # Verify launch parameters
-        mock_pw_instance.chromium.launch_persistent_context.assert_called_once()
-        args, kwargs = mock_pw_instance.chromium.launch_persistent_context.call_args
-        assert kwargs["headless"] is False
-        assert kwargs["executable_path"] == "/Applications/Brave.app"
-        mock_page.goto.assert_called_once_with("https://wikipedia.org", wait_until="domcontentloaded")
-
-
-def test_browser_navigate_truncation():
-    mock_page = MagicMock()
-    mock_page.is_closed.return_value = False
-    mock_page.evaluate.return_value = "A" * 9000
+    mock_page.evaluate.return_value = []
     
     mock_context = MagicMock()
     mock_context.pages = [mock_page]
@@ -74,14 +36,33 @@ def test_browser_navigate_truncation():
     with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
         mock_sync_pw.return_value.start.return_value = mock_pw_instance
         
-        res = browser_navigate("https://google.com")
-        assert "[Content truncated...]" in res
-        assert len(res) > 8000
+        res = browser_inspect()
+        assert "No interactive elements found" in res
 
 
-def test_browser_click_success():
+def test_browser_inspect_with_elements():
     mock_page = MagicMock()
     mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = [
+        {
+            "id": 1,
+            "tag": "input",
+            "type": "text",
+            "name": "q",
+            "placeholder": "Search...",
+            "aria_label": "Search Query",
+            "text": ""
+        },
+        {
+            "id": 2,
+            "tag": "button",
+            "type": "submit",
+            "name": "submit",
+            "placeholder": "",
+            "aria_label": "",
+            "text": "Go"
+        }
+    ]
     
     mock_context = MagicMock()
     mock_context.pages = [mock_page]
@@ -92,12 +73,12 @@ def test_browser_click_success():
     with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
         mock_sync_pw.return_value.start.return_value = mock_pw_instance
         
-        res = browser_click("button#submit")
-        assert "Successfully clicked element 'button#submit'." in res
-        mock_page.click.assert_called_once_with("button#submit", timeout=5000)
+        res = browser_inspect()
+        assert "[1] input (text) - name=\"q\", placeholder=\"Search...\", aria-label=\"Search Query\"" in res
+        assert "[2] button (submit) - name=\"submit\", text=\"Go\"" in res
 
 
-def test_browser_input_success():
+def test_browser_click_numeric_conversion():
     mock_page = MagicMock()
     mock_page.is_closed.return_value = False
     
@@ -110,12 +91,12 @@ def test_browser_input_success():
     with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
         mock_sync_pw.return_value.start.return_value = mock_pw_instance
         
-        res = browser_input("input#search", "gold price")
-        assert "Successfully entered text into 'input#search'." in res
-        mock_page.fill.assert_called_once_with("input#search", "gold price", timeout=5000)
+        res = browser_click("12")
+        assert "Successfully clicked element '12'" in res
+        mock_page.click.assert_called_once_with("[data-verse-id='12']", timeout=5000)
 
 
-def test_browser_close_success():
+def test_browser_input_numeric_conversion():
     mock_page = MagicMock()
     mock_page.is_closed.return_value = False
     
@@ -128,11 +109,47 @@ def test_browser_close_success():
     with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
         mock_sync_pw.return_value.start.return_value = mock_pw_instance
         
-        # Open browser first
-        browser_navigate("google.com")
+        res = browser_input("5", "hello world")
+        assert "Successfully entered text into '5'" in res
+        mock_page.fill.assert_called_once_with("[data-verse-id='5']", "hello world", timeout=5000)
+
+
+def test_browser_scroll():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+    
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+    
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
         
-        # Now close it
-        res = browser_close()
-        assert "Browser session closed successfully." in res
-        mock_context.close.assert_called_once()
-        mock_pw_instance.stop.assert_called_once()
+        res = browser_scroll("down", "half")
+        assert "Successfully scrolled page down by half" in res
+        
+        # Verify page evaluate was called with down and half
+        mock_page.evaluate.assert_called_once()
+        script = mock_page.evaluate.call_args[0][0]
+        assert '"down" === "down"' in script
+        assert '"half" === "half"' in script
+
+
+def test_browser_go_back():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+    
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+    
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+        
+        res = browser_go_back()
+        assert "Successfully navigated back" in res
+        mock_page.go_back.assert_called_once_with(wait_until="domcontentloaded")
