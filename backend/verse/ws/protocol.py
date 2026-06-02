@@ -94,6 +94,8 @@ def config_data_message(config: "AppConfig", api_keys: dict[str, bool]) -> dict[
                 "provider": config.tts.provider,
                 "voice_id": config.tts.voice_id,
                 "speed": config.tts.speed,
+                "model": config.tts.model,
+                "base_url": config.tts.base_url,
             },
             "stt": {
                 "language": config.stt.language,
@@ -102,6 +104,7 @@ def config_data_message(config: "AppConfig", api_keys: dict[str, bool]) -> dict[
             "llm": {
                 "provider": config.llm.provider,
                 "model": config.llm.model,
+                "base_url": config.llm.base_url,
                 "temperature": config.llm.temperature,
                 "max_history": config.llm.max_history,
             },

@@ -82,14 +82,14 @@ class LiveRealtimeEngine(VoiceEngine):
         """
         Connect to Gemini Live. Raises RuntimeError if API key is missing.
         """
-        import keyring
         from google import genai
         from verse.audio.streaming_player import StreamingPlayer
+        from verse.persistence.keychain import get_api_key
 
-        api_key = keyring.get_password("verse", "gemini_api_key")
+        api_key = get_api_key("gemini") or get_api_key("gemini_api_key")
         if not api_key:
             raise RuntimeError(
-                "Gemini API key not set — run: keyring set verse gemini_api_key <key>"
+                "Gemini API key not set — save a Gemini key in settings or run: keyring set verse gemini <key>"
             )
 
         self._loop = asyncio.get_running_loop()

@@ -69,6 +69,7 @@ function ApiKeysSection() {
   const keys: Array<{ name: keyof ApiKeyStatus; label: string; placeholder: string }> = [
     { name: "groq", label: "Groq (STT)", placeholder: "gsk_..." },
     { name: "deepseek", label: "DeepSeek (LLM)", placeholder: "sk-..." },
+    { name: "gemini", label: "Gemini (LLM/TTS)", placeholder: "AIza..." },
     { name: "brave", label: "Brave Search", placeholder: "BSA..." },
     { name: "spotify", label: "Spotify Client ID", placeholder: "client id..." },
     { name: "picovoice", label: "Picovoice (wake word)", placeholder: "AccessKey..." },
@@ -181,6 +182,7 @@ function VoiceSection() {
         >
           <option value="edge-tts">Edge TTS (free)</option>
           <option value="google">Google TTS (free)</option>
+          <option value="gemini">Gemini TTS</option>
           <option value="macos">macOS Say (offline)</option>
           <option value="openai">OpenAI TTS</option>
           <option value="elevenlabs">ElevenLabs</option>
@@ -196,6 +198,37 @@ function VoiceSection() {
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== tts.voice_id) send({ type: "update_config", section: "tts", key: "voice_id", value: v });
+          }}
+        />
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Model</span>
+        <input
+          className="settings-input"
+          type="text"
+          list="gemini-tts-models"
+          defaultValue={tts.model}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && v !== tts.model) send({ type: "update_config", section: "tts", key: "model", value: v });
+          }}
+        />
+        <datalist id="gemini-tts-models">
+          <option value="gemini-3.1-flash-tts" />
+          <option value="gemini-2.5-flash-tts" />
+        </datalist>
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Base URL</span>
+        <input
+          className="settings-input"
+          type="text"
+          defaultValue={tts.base_url}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && v !== tts.base_url) send({ type: "update_config", section: "tts", key: "base_url", value: v });
           }}
         />
       </div>
@@ -274,6 +307,19 @@ function LLMSection() {
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== llm.model) send({ type: "update_config", section: "llm", key: "model", value: v });
+          }}
+        />
+      </div>
+
+      <div className="settings-row">
+        <span className="settings-label">Base URL</span>
+        <input
+          className="settings-input"
+          type="text"
+          defaultValue={llm.base_url}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v && v !== llm.base_url) send({ type: "update_config", section: "llm", key: "base_url", value: v });
           }}
         />
       </div>

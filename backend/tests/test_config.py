@@ -7,6 +7,8 @@ def test_load_config_defaults_when_file_is_missing(tmp_path):
     assert config == AppConfig()
     assert config.llm.max_history == 4
     assert config.llm.base_url == "https://api.deepseek.com"
+    assert config.tts.model == "gemini-3.1-flash-tts"
+    assert config.tts.base_url == "https://generativelanguage.googleapis.com/v1beta"
     assert config.memory.inject_facts == 6
     assert config.voice.max_tool_iterations == 2
     assert config.vad.speech_start_ms == 100
@@ -31,6 +33,27 @@ base_url = "https://opencode.ai/zen/v1"
 
     assert config.llm.model == "deepseek-v4-flash-free"
     assert config.llm.base_url == "https://opencode.ai/zen/v1"
+
+
+def test_load_config_parses_tts_model_and_base_url(tmp_path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[tts]
+provider = "gemini"
+voice_id = "Puck"
+model = "gemini-2.5-flash-tts"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.tts.provider == "gemini"
+    assert config.tts.voice_id == "Puck"
+    assert config.tts.model == "gemini-2.5-flash-tts"
+    assert config.tts.base_url == "https://generativelanguage.googleapis.com/v1beta"
 
 
 def test_load_config_merges_toml_values(tmp_path):

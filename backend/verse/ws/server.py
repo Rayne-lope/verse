@@ -123,6 +123,10 @@ class WebSocketServer:
                     k: get_api_key(k) is not None
                     for k in ("groq", "deepseek", "brave", "spotify", "picovoice")
                 }
+                api_keys["gemini"] = (
+                    get_api_key("gemini") is not None
+                    or get_api_key("gemini_api_key") is not None
+                )
                 await client.send(json.dumps(config_data_message(self._config, api_keys)))
             if self._mic_status is not None:
                 await client.send(json.dumps(self._mic_status))

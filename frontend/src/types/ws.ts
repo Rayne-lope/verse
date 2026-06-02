@@ -84,9 +84,9 @@ export interface VADUpdateMessage {
 }
 
 export interface VerseConfig {
-  tts: { provider: string; voice_id: string; speed: number };
+  tts: { provider: string; voice_id: string; speed: number; model: string; base_url: string };
   stt: { language: string; partial_mode?: string };
-  llm: { provider: string; model: string; temperature: number; max_history: number };
+  llm: { provider: string; model: string; base_url: string; temperature: number; max_history: number };
   hotkey: { trigger: string };
   always_on: {
     enabled: boolean;
@@ -103,6 +103,7 @@ export interface VerseConfig {
 export interface ApiKeyStatus {
   groq: boolean;
   deepseek: boolean;
+  gemini: boolean;
   brave: boolean;
   spotify: boolean;
   picovoice: boolean;

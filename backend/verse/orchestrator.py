@@ -3301,10 +3301,12 @@ def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessi
     from verse.audio.capture import AudioRecorder
     from verse.audio.playback import play_audio
     from verse.llm.deepseek import DeepSeekAdapter
+    from verse.llm.gemini import GeminiAdapter
     from verse.stt.groq import GroqWhisperAdapter
     from verse.tools.registry import build_default_registry
     from verse.tts.macos_say import MacOSSayAdapter
     from verse.tts.edge_tts import EdgeTTSAdapter
+    from verse.tts.gemini import GeminiTTSAdapter
     from verse.tts.google import GoogleTTSAdapter
 
     config = config or AppConfig()
@@ -3314,8 +3316,15 @@ def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessi
         tts = EdgeTTSAdapter(config.tts)
     elif config.tts.provider == "google":
         tts = GoogleTTSAdapter(config.tts)
+    elif config.tts.provider == "gemini":
+        tts = GeminiTTSAdapter(config.tts)
     else:
         tts = MacOSSayAdapter(config.tts)
+
+    if config.llm.provider == "gemini":
+        llm = GeminiAdapter(config.llm)
+    else:
+        llm = DeepSeekAdapter(config.llm)
 
     store = None
     if config.memory.enabled:
@@ -3329,7 +3338,7 @@ def build_orchestrator(config: AppConfig | None = None, debug_logger: DebugSessi
 
     return Orchestrator(
         stt=GroqWhisperAdapter(),
-        llm=DeepSeekAdapter(config.llm),
+        llm=llm,
         tts=tts,
         registry=registry,
         state_machine=StateMachine(),

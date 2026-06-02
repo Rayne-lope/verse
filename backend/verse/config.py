@@ -39,6 +39,8 @@ class TTSConfig:
     provider: str = "edge-tts"
     voice_id: str = "id-ID-GadisNeural"
     speed: float = 1.0
+    model: str = "gemini-3.1-flash-tts"
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
 
 @dataclass(frozen=True)
@@ -340,6 +342,8 @@ def config_from_mapping(raw_config: dict[str, Any]) -> AppConfig:
             provider=str(tts.get("provider", TTSConfig.provider)),
             voice_id=str(tts.get("voice_id", TTSConfig.voice_id)),
             speed=float(tts.get("speed", TTSConfig.speed)),
+            model=str(tts.get("model", TTSConfig.model)),
+            base_url=str(tts.get("base_url", TTSConfig.base_url)),
         ),
         tools=ToolsConfig(
             enabled=list(tools.get("enabled", ToolsConfig().enabled)),

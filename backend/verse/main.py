@@ -25,10 +25,12 @@ logger = logging.getLogger(__name__)
 
 def _get_api_keys_status() -> dict[str, bool]:
     from verse.persistence.keychain import get_api_key
-    return {
+    keys = {
         k: get_api_key(k) is not None
         for k in ("groq", "deepseek", "brave", "spotify", "picovoice")
     }
+    keys["gemini"] = get_api_key("gemini") is not None or get_api_key("gemini_api_key") is not None
+    return keys
 
 
 def build_client_message_handler(
