@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, TypeVar
 from playwright.sync_api import sync_playwright, BrowserContext, Page, Playwright
@@ -9,6 +10,11 @@ from playwright.sync_api import sync_playwright, BrowserContext, Page, Playwrigh
 _playwright: Playwright | None = None
 _context: BrowserContext | None = None
 _page: Page | None = None
+_last_browser_result: dict[str, Any] = {
+    "action": "none",
+    "status": "unknown",
+    "message": "No browser action has run yet.",
+}
 
 # Playwright's sync API binds its objects to the thread that created them. The
 # orchestrator runs tools via asyncio.to_thread(), whose default pool may schedule
@@ -42,6 +48,11 @@ SUBMIT_LABELS = (
     "kirim", "masuk", "lanjut", "cari",
 )
 
+ERROR_PAGE_MARKERS = (
+    "chrome-error://",
+    "about:blank",
+)
+
 
 def _run_on_browser_thread(fn: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     """Execute a browser operation on the single dedicated Playwright thread."""
@@ -60,14 +71,153 @@ def _find_brave_executable() -> str:
     return ""
 
 
+def _page_is_usable(page: Page | None) -> bool:
+    if page is None:
+        return False
+    try:
+        return not page.is_closed()
+    except Exception:
+        return False
+
+
+def _context_pages(context: BrowserContext | None) -> list[Page]:
+    if context is None:
+        return []
+    try:
+        pages = getattr(context, "pages", [])
+        return list(pages) if isinstance(pages, list) else []
+    except Exception:
+        return []
+
+
+def _safe_page_url(page: Page | None) -> str:
+    if page is None:
+        return ""
+    try:
+        value = getattr(page, "url", "") or ""
+        return value if isinstance(value, str) else ""
+    except Exception:
+        return ""
+
+
+def _safe_page_title(page: Page | None) -> str:
+    if page is None:
+        return ""
+    try:
+        title = page.title()
+        return title if isinstance(title, str) else ""
+    except Exception:
+        return ""
+
+
+def _safe_wait_for_load(page: Page, state: str = "domcontentloaded", timeout: int = 3000) -> None:
+    try:
+        page.wait_for_load_state(state, timeout=timeout)
+    except Exception:
+        try:
+            page.wait_for_timeout(min(timeout, 1000))
+        except Exception:
+            pass
+
+
+def _settle_page(page: Page, *, timeout_ms: int = 1000) -> None:
+    _safe_wait_for_load(page, timeout=timeout_ms)
+    try:
+        page.wait_for_timeout(min(timeout_ms, 1000))
+    except Exception:
+        pass
+
+
+def _page_info(page: Page | None) -> dict[str, str]:
+    return {
+        "url": _safe_page_url(page),
+        "title": _safe_page_title(page),
+    }
+
+
+def _page_readiness(page: Page | None, content: str = "") -> str:
+    if page is None:
+        return "not_started"
+    if not _page_is_usable(page):
+        return "closed"
+    if _looks_like_error_page(page, content):
+        return "error_or_blank"
+    try:
+        state = page.evaluate("() => document.readyState")
+        if isinstance(state, str) and state:
+            return state
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _record_browser_result(action: str, status: str, message: str, page: Page | None = None) -> str:
+    global _last_browser_result
+    info = _page_info(page)
+    _last_browser_result = {
+        "action": action,
+        "status": status,
+        "message": message,
+        **info,
+    }
+    return message
+
+
+def _normalize_navigation_target(raw: str) -> str:
+    target = (raw or "").strip()
+    if not target:
+        return ""
+    if "://" in target:
+        return target
+    if target.startswith("www."):
+        return f"https://{target}"
+    if re.search(r"\s", target) or not re.search(r"(\.|localhost|:\d+)", target, flags=re.IGNORECASE):
+        query = urllib.parse.quote_plus(target)
+        return f"https://www.google.com/search?q={query}"
+    return f"https://{target}"
+
+
+def _looks_like_error_page(page: Page, content: str = "") -> bool:
+    url = _safe_page_url(page).lower()
+    if any(marker in url for marker in ERROR_PAGE_MARKERS):
+        return True
+    lowered = content.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "this site can't be reached",
+            "this site can’t be reached",
+            "dns_probe",
+            "err_name_not_resolved",
+            "situs ini tidak dapat dijangkau",
+        )
+    )
+
+
+def _format_page_header(prefix: str, page: Page, *, fallback_url: str = "") -> str:
+    final_url = _safe_page_url(page) or fallback_url
+    title = _safe_page_title(page)
+    lines = [prefix]
+    if final_url:
+        lines.append(f"URL: {final_url}")
+    if title:
+        lines.append(f"Title: {title}")
+    return "\n".join(lines)
+
+
 def _ensure_browser() -> Page:
     """Lazily initialize and return the persistent browser context."""
     global _playwright, _context, _page
-    if _page is not None and not _page.is_closed():
+    if _page_is_usable(_page):
         return _page
 
     if _playwright is None:
         _playwright = sync_playwright().start()
+
+    for candidate in reversed(_context_pages(_context)):
+        if _page_is_usable(candidate):
+            _page = candidate
+            return _page
 
     brave_path = _find_brave_executable()
     launch_kwargs = {}
@@ -79,30 +229,62 @@ def _ensure_browser() -> Page:
     os.makedirs(user_data_dir, exist_ok=True)
 
     # Launch browser headfully (headless=False) so it is visible to the user
-    _context = _playwright.chromium.launch_persistent_context(
-        user_data_dir=user_data_dir,
-        headless=False,
-        no_viewport=False,
-        **launch_kwargs
-    )
+    if _context is None:
+        _context = _playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=False,
+            no_viewport=False,
+            **launch_kwargs
+        )
     
-    if _context.pages:
-        _page = _context.pages[0]
+    pages = _context_pages(_context)
+    open_pages = [page for page in pages if _page_is_usable(page)]
+    if open_pages:
+        _page = open_pages[-1]
     else:
-        _page = _context.new_page()
+        try:
+            _page = _context.new_page()
+        except Exception:
+            _context = _playwright.chromium.launch_persistent_context(
+                user_data_dir=user_data_dir,
+                headless=False,
+                no_viewport=False,
+                **launch_kwargs
+            )
+            _page = _context.new_page()
     return _page
 
 
 def _extract_visible_text(page: Page) -> str:
-    content = page.evaluate("""() => {
-        const selectors = ['script', 'style', 'svg', 'noscript', 'iframe'];
-        selectors.forEach(sel => {
-            document.querySelectorAll(sel).forEach(el => el.remove());
-        });
-        return document.body.innerText;
-    }""")
+    chunks: list[str] = []
+    try:
+        content = page.evaluate("""() => {
+            const body = document.body;
+            if (!body) return "";
+            return body.innerText || body.textContent || "";
+        }""")
+        if isinstance(content, str) and content.strip():
+            chunks.append(content)
+    except Exception:
+        pass
 
-    content = content or ""
+    frames = getattr(page, "frames", [])
+    if isinstance(frames, list):
+        for frame in frames:
+            if frame is page:
+                continue
+            try:
+                frame_text = frame.evaluate("""() => {
+                    const body = document.body;
+                    if (!body) return "";
+                    return body.innerText || body.textContent || "";
+                }""")
+                if isinstance(frame_text, str) and frame_text.strip():
+                    chunks.append(frame_text)
+            except Exception:
+                continue
+
+    content = "\n".join(chunks)
     cleaned = "\n".join(line.strip() for line in content.splitlines() if line.strip())
     if len(cleaned) > 8000:
         cleaned = cleaned[:8000] + "\n\n[Content truncated...]"
@@ -143,10 +325,10 @@ def _whatsapp_page_state(page: Page) -> str:
 
 def _ensure_whatsapp_page() -> tuple[Page, str]:
     page = _ensure_browser()
-    current_url = (getattr(page, "url", "") or "").lower()
+    current_url = _safe_page_url(page).lower()
     if "web.whatsapp.com" not in current_url:
         page.goto(WHATSAPP_WEB_URL, wait_until="domcontentloaded", timeout=20000)
-        page.wait_for_timeout(2500)
+        _settle_page(page, timeout_ms=2500)
     return page, _whatsapp_page_state(page)
 
 
@@ -157,6 +339,12 @@ def _fill_first_available(page: Page, selectors: tuple[str, ...], text: str, *, 
             locator = page.locator(selector).first
             locator.click(timeout=timeout)
             locator.fill(text, timeout=timeout)
+            try:
+                actual = locator.input_value(timeout=1000)
+                if isinstance(actual, str) and actual != text:
+                    raise RuntimeError(f"field value is {actual!r}, expected {text!r}")
+            except Exception:
+                pass
             return selector, locator
         except Exception as exc:
             last_error = exc
@@ -201,7 +389,12 @@ def _element_search_text(element: dict[str, Any]) -> str:
     return _normalize_match_text(" ".join(str(part or "") for part in parts))
 
 
-def _collect_interactive_elements(page: Page, *, badge: bool = False) -> list[dict[str, Any]]:
+def _collect_interactive_elements(
+    page: Page,
+    *,
+    badge: bool = False,
+    include_frames: bool = False,
+) -> list[dict[str, Any]]:
     """Collect visible interactive elements and optionally render numeric badges."""
     script = """
     (badge) => {
@@ -355,7 +548,30 @@ def _collect_interactive_elements(page: Page, *, badge: bool = False) -> list[di
     }
     """
     elements = page.evaluate(script, badge)
-    return elements if isinstance(elements, list) else []
+    results = elements if isinstance(elements, list) else []
+    if not include_frames:
+        return results
+
+    next_id = len(results) + 1
+    frames = getattr(page, "frames", [])
+    if isinstance(frames, list):
+        for frame in frames:
+            if frame is page:
+                continue
+            try:
+                frame_elements = frame.evaluate(script, False)
+            except Exception:
+                continue
+            if not isinstance(frame_elements, list):
+                continue
+            for element in frame_elements:
+                if not isinstance(element, dict):
+                    continue
+                element["id"] = next_id
+                element["frame"] = True
+                next_id += 1
+                results.append(element)
+    return results
 
 
 def _summarize_elements(elements: list[dict[str, Any]], *, limit: int = 5) -> str:
@@ -434,8 +650,12 @@ def _click_element_by_id(page: Page, element: dict[str, Any], original_query: st
     element_id = element.get("id")
     if element_id is None:
         return f"Failed to click best match for '{original_query}': element has no verse id."
-    page.click(f"[data-verse-id='{element_id}']", timeout=5000)
-    page.wait_for_timeout(1000)
+    _click_selector_verified(
+        page,
+        f"[data-verse-id='{element_id}']",
+        f"best match for '{original_query}'",
+        timeout=5000,
+    )
     return f"Successfully clicked best match for '{original_query}': [{element_id}] {element.get('tag', 'element')}."
 
 
@@ -470,35 +690,223 @@ def _is_falsy_form_value(value: str) -> bool:
     return _normalize_match_text(value) in ("false", "no", "n", "off", "0", "unchecked", "mati")
 
 
+def _read_selector_value(page: Page, selector: str) -> str | None:
+    try:
+        locator = page.locator(selector).first
+    except Exception:
+        locator = None
+
+    if locator is not None:
+        try:
+            value = locator.input_value(timeout=1000)
+            if isinstance(value, str):
+                return value
+        except Exception:
+            pass
+        try:
+            value = locator.evaluate(
+                """(el) => {
+                    if ('value' in el) return el.value || '';
+                    if (el.isContentEditable) return el.innerText || el.textContent || '';
+                    return el.textContent || '';
+                }"""
+            )
+            if isinstance(value, str):
+                return value
+        except Exception:
+            pass
+
+    try:
+        value = page.evaluate(
+            """(selector) => {
+                const el = document.querySelector(selector);
+                if (!el) return null;
+                if ('value' in el) return el.value || '';
+                if (el.isContentEditable) return el.innerText || el.textContent || '';
+                return el.textContent || '';
+            }""",
+            selector,
+        )
+        return value if isinstance(value, str) else None
+    except Exception:
+        return None
+
+
+def _is_selector_checked(page: Page, selector: str) -> bool | None:
+    try:
+        locator = page.locator(selector).first
+        checked = locator.is_checked(timeout=1000)
+        if isinstance(checked, bool):
+            return checked
+    except Exception:
+        pass
+    try:
+        checked = page.evaluate(
+            """(selector) => {
+                const el = document.querySelector(selector);
+                return el && 'checked' in el ? Boolean(el.checked) : null;
+            }""",
+            selector,
+        )
+        return checked if isinstance(checked, bool) else None
+    except Exception:
+        return None
+
+
+def _click_selector_verified(page: Page, selector: str, label: str, *, timeout: int = 5000) -> str:
+    before_url = _safe_page_url(page)
+    try:
+        page.click(selector, timeout=timeout)
+    except Exception as first_exc:
+        try:
+            locator = page.locator(selector).first
+            try:
+                locator.scroll_into_view_if_needed(timeout=2000)
+            except Exception:
+                pass
+            locator.click(timeout=timeout)
+        except Exception as second_exc:
+            try:
+                page.evaluate(
+                    """(selector) => {
+                        const el = document.querySelector(selector);
+                        if (!el) throw new Error('Element not found');
+                        if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+                            throw new Error('Element is disabled');
+                        }
+                        el.click();
+                    }""",
+                    selector,
+                )
+            except Exception as third_exc:
+                raise RuntimeError(
+                    f"primary click failed: {first_exc}; locator fallback failed: "
+                    f"{second_exc}; js fallback failed: {third_exc}"
+                ) from third_exc
+
+    _settle_page(page, timeout_ms=1000)
+    after_url = _safe_page_url(page)
+    if before_url and after_url and before_url != after_url:
+        return f"Successfully clicked {label}. URL changed to {after_url}."
+    return f"Successfully clicked {label}."
+
+
+def _click_locator_verified(page: Page, locator: Any, label: str, *, timeout: int = 5000) -> str:
+    before_url = _safe_page_url(page)
+    try:
+        try:
+            locator.scroll_into_view_if_needed(timeout=2000)
+        except Exception:
+            pass
+        locator.click(timeout=timeout)
+    except TypeError:
+        locator.click()
+    _settle_page(page, timeout_ms=1000)
+    after_url = _safe_page_url(page)
+    if before_url and after_url and before_url != after_url:
+        return f"Successfully clicked {label}. URL changed to {after_url}."
+    return f"Successfully clicked {label}."
+
+
+def _fill_selector_verified(page: Page, selector: str, text: str, label: str, *, timeout: int = 5000) -> str:
+    try:
+        page.fill(selector, text, timeout=timeout)
+    except Exception as first_exc:
+        try:
+            locator = page.locator(selector).first
+            try:
+                locator.scroll_into_view_if_needed(timeout=2000)
+            except Exception:
+                pass
+            locator.fill(text, timeout=timeout)
+        except Exception as second_exc:
+            raise RuntimeError(
+                f"primary fill failed: {first_exc}; locator fallback failed: {second_exc}"
+            ) from second_exc
+
+    actual = _read_selector_value(page, selector)
+    if actual is not None and actual != text:
+        raise RuntimeError(f"fill verification failed: field value is {actual!r}, expected {text!r}")
+    _settle_page(page, timeout_ms=500)
+    return f"Successfully entered text into {label}."
+
+
+def _verify_field_value(page: Page, selector: str, expected: str) -> str:
+    actual = _read_selector_value(page, selector)
+    if actual is None:
+        return ""
+    if actual == expected:
+        return ""
+    return f" verification failed: field value is {actual!r}, expected {expected!r}."
+
+
+def _browser_status_impl() -> str:
+    global _page
+    page = _page if _page_is_usable(_page) else None
+    if page is None:
+        page = next((candidate for candidate in reversed(_context_pages(_context)) if _page_is_usable(candidate)), None)
+        if page is not None:
+            _page = page
+
+    if page is None:
+        return (
+            "Browser session: not started or no active page.\n"
+            f"Last action: {_last_browser_result.get('action')} "
+            f"({_last_browser_result.get('status')}) - {_last_browser_result.get('message')}"
+        )
+
+    readiness = _page_readiness(page)
+    info = _page_info(page)
+    return (
+        "Browser session: alive.\n"
+        f"Readiness: {readiness}.\n"
+        f"URL: {info['url'] or 'unknown'}.\n"
+        f"Title: {info['title'] or 'unknown'}.\n"
+        f"Last action: {_last_browser_result.get('action')} "
+        f"({_last_browser_result.get('status')}) - {_last_browser_result.get('message')}"
+    )
+
+
 def _browser_navigate_impl(url: str) -> str:
     """Navigate to a URL and return the cleaned textual contents of the page."""
     try:
         page = _ensure_browser()
-        target = url.strip()
-        if "://" not in target:
-            target = f"https://{target}"
+        target = _normalize_navigation_target(url)
+        if not target:
+            return _record_browser_result("browser_navigate", "failed", "Failed to navigate: URL or search query is required.", page)
 
         page.goto(target, wait_until="domcontentloaded", timeout=20000)
-        page.wait_for_timeout(1500)  # Brief settle for SPA/dynamic content
+        _settle_page(page, timeout_ms=1500)
 
         cleaned = _extract_visible_text(page)
-        return f"Successfully navigated to {target}.\n\nPage Content:\n{cleaned}"
+        header = _format_page_header(f"Successfully navigated to {target}.", page, fallback_url=target)
+        if _looks_like_error_page(page, cleaned):
+            message = f"{header}\n\nThe page appears to be blank or a browser error page."
+            return _record_browser_result("browser_navigate", "failed", message, page)
+        if not cleaned:
+            message = f"{header}\n\nPage Content:\n[No visible text found.]"
+            return _record_browser_result("browser_navigate", "success", message, page)
+        message = f"{header}\n\nPage Content:\n{cleaned}"
+        return _record_browser_result("browser_navigate", "success", message, page)
     except Exception as exc:
-        return f"Failed to navigate to {url}: {exc}"
+        return _record_browser_result("browser_navigate", "failed", f"Failed to navigate to {url}: {exc}", _page)
 
 
 def _browser_read_current_impl() -> str:
     """Read visible text from the active browser page without navigating."""
     try:
         page = _ensure_browser()
-        page.wait_for_timeout(500)
+        _settle_page(page, timeout_ms=500)
         cleaned = _extract_visible_text(page)
-        current_url = getattr(page, "url", "") or "the current page"
+        current_url = _safe_page_url(page) or "the current page"
+        header = _format_page_header(f"Successfully read {current_url}.", page)
         if not cleaned:
-            return f"Successfully read {current_url}, but no visible text was found."
-        return f"Successfully read {current_url}.\n\nPage Content:\n{cleaned}"
+            message = f"{header}\n\nPage Content:\n[No visible text found.]"
+            return _record_browser_result("browser_read_current", "not_found", message, page)
+        message = f"{header}\n\nPage Content:\n{cleaned}"
+        return _record_browser_result("browser_read_current", "success", message, page)
     except Exception as exc:
-        return f"Failed to read current page: {exc}"
+        return _record_browser_result("browser_read_current", "failed", f"Failed to read current page: {exc}", _page)
 
 
 def _browser_click_impl(selector: str) -> str:
@@ -506,13 +914,14 @@ def _browser_click_impl(selector: str) -> str:
     try:
         page = _ensure_browser()
         target_selector = selector.strip()
+        if not target_selector:
+            return _record_browser_result("browser_click", "failed", "Failed to click element: selector is required.", page)
         if target_selector.isdigit():
             target_selector = f"[data-verse-id='{target_selector}']"
-        page.click(target_selector, timeout=5000)
-        page.wait_for_timeout(2000)
-        return f"Successfully clicked element '{selector}'."
+        message = _click_selector_verified(page, target_selector, f"element '{selector}'", timeout=5000)
+        return _record_browser_result("browser_click", "success", message, page)
     except Exception as exc:
-        return f"Failed to click element '{selector}': {exc}"
+        return _record_browser_result("browser_click", "failed", f"Failed to click element '{selector}': {exc}", _page)
 
 
 def _browser_input_impl(selector: str, text: str) -> str:
@@ -520,30 +929,32 @@ def _browser_input_impl(selector: str, text: str) -> str:
     try:
         page = _ensure_browser()
         target_selector = selector.strip()
+        if not target_selector:
+            return _record_browser_result("browser_input", "failed", "Failed to enter text: selector is required.", page)
         if target_selector.isdigit():
             target_selector = f"[data-verse-id='{target_selector}']"
-        page.fill(target_selector, text, timeout=5000)
-        page.wait_for_timeout(1000)
-        return f"Successfully entered text into '{selector}'."
+        message = _fill_selector_verified(page, target_selector, text, f"'{selector}'", timeout=5000)
+        return _record_browser_result("browser_input", "success", message, page)
     except Exception as exc:
-        return f"Failed to enter text into '{selector}': {exc}"
+        return _record_browser_result("browser_input", "failed", f"Failed to enter text into '{selector}': {exc}", _page)
 
 
 def _browser_click_text_impl(text: str, exact: bool = False) -> str:
     """Click an element by visible text, falling back to metadata matching."""
     text = (text or "").strip()
     if not text:
-        return "Failed to click by text: text is required."
+        return _record_browser_result("browser_click_text", "failed", "Failed to click by text: text is required.", _page)
     try:
         page = _ensure_browser()
         try:
-            page.get_by_text(text, exact=exact).first.click(timeout=5000)
-            page.wait_for_timeout(1000)
-            return f"Successfully clicked text '{text}'."
+            message = _click_locator_verified(page, page.get_by_text(text, exact=exact).first, f"text '{text}'", timeout=5000)
+            return _record_browser_result("browser_click_text", "success", message, page)
         except Exception:
-            return _fallback_click_best_match(page, text)
+            result = _fallback_click_best_match(page, text)
+            status = "success" if result.startswith("Successfully") else ("ambiguous" if "ambiguous" in result.lower() else "not_found")
+            return _record_browser_result("browser_click_text", status, result, page)
     except Exception as exc:
-        return f"Failed to click text '{text}': {exc}"
+        return _record_browser_result("browser_click_text", "failed", f"Failed to click text '{text}': {exc}", _page)
 
 
 def _browser_click_role_impl(role: str, name: str, exact: bool = False) -> str:
@@ -551,31 +962,34 @@ def _browser_click_role_impl(role: str, name: str, exact: bool = False) -> str:
     role = (role or "").strip()
     name = (name or "").strip()
     if not role:
-        return "Failed to click by role: role is required."
+        return _record_browser_result("browser_click_role", "failed", "Failed to click by role: role is required.", _page)
     if not name:
-        return "Failed to click by role: name is required."
+        return _record_browser_result("browser_click_role", "failed", "Failed to click by role: name is required.", _page)
     try:
         page = _ensure_browser()
         try:
-            page.get_by_role(role, name=name, exact=exact).first.click(timeout=5000)
-            page.wait_for_timeout(1000)
-            return f"Successfully clicked {role} '{name}'."
+            message = _click_locator_verified(page, page.get_by_role(role, name=name, exact=exact).first, f"{role} '{name}'", timeout=5000)
+            return _record_browser_result("browser_click_role", "success", message, page)
         except Exception:
-            return _fallback_click_best_match(page, name, role=role)
+            result = _fallback_click_best_match(page, name, role=role)
+            status = "success" if result.startswith("Successfully") else ("ambiguous" if "ambiguous" in result.lower() else "not_found")
+            return _record_browser_result("browser_click_role", status, result, page)
     except Exception as exc:
-        return f"Failed to click {role} '{name}': {exc}"
+        return _record_browser_result("browser_click_role", "failed", f"Failed to click {role} '{name}': {exc}", _page)
 
 
 def _browser_click_best_match_impl(query: str) -> str:
     """Click the best matching visible interactive element for a natural-language query."""
     query = (query or "").strip()
     if not query:
-        return "Failed to click best match: query is required."
+        return _record_browser_result("browser_click_best_match", "failed", "Failed to click best match: query is required.", _page)
     try:
         page = _ensure_browser()
-        return _fallback_click_best_match(page, query)
+        result = _fallback_click_best_match(page, query)
+        status = "success" if result.startswith("Successfully") else ("ambiguous" if "ambiguous" in result.lower() else "not_found")
+        return _record_browser_result("browser_click_best_match", status, result, page)
     except Exception as exc:
-        return f"Failed to click best match for '{query}': {exc}"
+        return _record_browser_result("browser_click_best_match", "failed", f"Failed to click best match for '{query}': {exc}", _page)
 
 
 def _fill_form_field(page: Page, target: str, value: str) -> str:
@@ -614,19 +1028,34 @@ def _fill_form_field(page: Page, target: str, value: str) -> str:
 
     if tag == "select" or role == "combobox":
         page.select_option(selector, value, timeout=5000)
+        verification_error = _verify_field_value(page, selector, value)
+        if verification_error:
+            return f"Failed to fill '{target}':{verification_error}"
     elif element_type == "checkbox" or role == "checkbox":
         if _is_truthy_form_value(value):
             page.check(selector, timeout=5000)
+            checked = _is_selector_checked(page, selector)
+            if checked is False:
+                return f"Failed to fill '{target}': checkbox did not become checked."
         elif _is_falsy_form_value(value):
             page.uncheck(selector, timeout=5000)
+            checked = _is_selector_checked(page, selector)
+            if checked is True:
+                return f"Failed to fill '{target}': checkbox is still checked."
         else:
             return f"Failed to fill '{target}': checkbox value must be true/false/on/off."
     elif element_type == "radio" or role == "radio":
         if _is_falsy_form_value(value):
             return f"Failed to fill '{target}': radio fields can only be selected, not unset."
         page.check(selector, timeout=5000)
+        checked = _is_selector_checked(page, selector)
+        if checked is False:
+            return f"Failed to fill '{target}': radio did not become selected."
     else:
         page.fill(selector, value, timeout=5000)
+        verification_error = _verify_field_value(page, selector, value)
+        if verification_error:
+            return f"Failed to fill '{target}':{verification_error}"
     return f"Filled '{target}' with '{value}'."
 
 
@@ -637,23 +1066,25 @@ def _browser_fill_form_impl(
 ) -> str:
     """Fill multiple form fields by label/name/placeholder/aria text."""
     if not isinstance(fields, list) or not fields:
-        return "Failed to fill form: fields must be a non-empty list."
+        return _record_browser_result("browser_fill_form", "failed", "Failed to fill form: fields must be a non-empty list.", _page)
     try:
         page = _ensure_browser()
         results: list[str] = []
         for field in fields:
             if not isinstance(field, dict):
-                return "Failed to fill form: each field must be an object with target and value."
+                message = "Failed to fill form: each field must be an object with target and value."
+                return _record_browser_result("browser_fill_form", "failed", message, page)
             target = str(field.get("target") or "").strip()
             value = str(field.get("value") or "")
             if not target:
-                return "Failed to fill form: every field needs a target."
+                message = "Failed to fill form: every field needs a target."
+                return _record_browser_result("browser_fill_form", "failed", message, page)
             result = _fill_form_field(page, target, value)
             results.append(result)
             if result.startswith("Failed"):
-                return "\n".join(results)
+                return _record_browser_result("browser_fill_form", "failed", "\n".join(results), page)
 
-        page.wait_for_timeout(500)
+        _settle_page(page, timeout_ms=500)
         if submit:
             labels = [submit_label.strip()] if submit_label.strip() else list(SUBMIT_LABELS)
             submit_result = ""
@@ -663,11 +1094,12 @@ def _browser_fill_form_impl(
                     break
             results.append(f"Submit result: {submit_result}")
             if not submit_result.startswith("Successfully"):
-                return "\n".join(results)
+                return _record_browser_result("browser_fill_form", "failed", "\n".join(results), page)
 
-        return "Successfully filled form.\n" + "\n".join(results)
+        message = "Successfully filled form.\n" + "\n".join(results)
+        return _record_browser_result("browser_fill_form", "success", message, page)
     except Exception as exc:
-        return f"Failed to fill form: {exc}"
+        return _record_browser_result("browser_fill_form", "failed", f"Failed to fill form: {exc}", _page)
 
 
 def _browser_close_impl() -> str:
@@ -686,7 +1118,7 @@ def _browser_close_impl() -> str:
     _playwright = None
     _context = None
     _page = None
-    return "Browser session closed successfully."
+    return _record_browser_result("browser_close", "success", "Browser session closed successfully.", None)
 
 
 def _browser_inspect_impl() -> str:
@@ -694,9 +1126,10 @@ def _browser_inspect_impl() -> str:
     render visual badges on the page, and return a text summary of these elements."""
     try:
         page = _ensure_browser()
-        elements = _collect_interactive_elements(page, badge=True)
+        elements = _collect_interactive_elements(page, badge=True, include_frames=True)
         if not elements:
-            return "No interactive elements found on the current page."
+            message = "No interactive elements found on the current page."
+            return _record_browser_result("browser_inspect", "not_found", message, page)
             
         summary_lines = ["Interactive elements on the page:"]
         for el in elements:
@@ -717,9 +1150,10 @@ def _browser_inspect_impl() -> str:
             details = ", ".join(parts)
             summary_lines.append(f"[{el['id']}] {el['tag']}{' (' + el['type'] + ')' if el['type'] else ''} - {details}")
             
-        return "\n".join(summary_lines)
+        message = "\n".join(summary_lines)
+        return _record_browser_result("browser_inspect", "success", message, page)
     except Exception as exc:
-        return f"Failed to inspect page: {exc}"
+        return _record_browser_result("browser_inspect", "failed", f"Failed to inspect page: {exc}", _page)
 
 
 def _browser_scroll_impl(direction: str, amount: str = "window") -> str:
@@ -727,47 +1161,71 @@ def _browser_scroll_impl(direction: str, amount: str = "window") -> str:
     The amount can be 'window' (scrolls one window height), 'half' (scrolls half window height), or a number of pixels."""
     try:
         page = _ensure_browser()
+        direction = (direction or "").strip().lower()
+        amount = (amount or "window").strip().lower()
+        if direction not in {"up", "down", "top", "bottom"}:
+            message = "Failed to scroll page: direction must be up, down, top, or bottom."
+            return _record_browser_result("browser_scroll", "failed", message, page)
         
         # Resolve scroll amount in JS
+        safe_direction = repr(direction).replace("'", '"')
+        safe_amount = repr(amount).replace("'", '"')
         script = f"""
         () => {{
+            const before = window.scrollY;
             let scrollPixels = 0;
-            if ("{amount}" === "window") {{
+            if ({safe_amount} === "window") {{
                 scrollPixels = window.innerHeight;
-            }} else if ("{amount}" === "half") {{
+            }} else if ({safe_amount} === "half") {{
                 scrollPixels = window.innerHeight / 2;
             }} else {{
-                let parsed = parseInt("{amount}", 10);
+                let parsed = parseInt({safe_amount}, 10);
                 scrollPixels = isNaN(parsed) ? window.innerHeight : parsed;
             }}
             
-            if ("{direction}" === "down") {{
-                window.scrollBy({{ top: scrollPixels, behavior: 'smooth' }});
-            }} else if ("{direction}" === "up") {{
-                window.scrollBy({{ top: -scrollPixels, behavior: 'smooth' }});
-            }} else if ("{direction}" === "top") {{
-                window.scrollTo({{ top: 0, behavior: 'smooth' }});
-            }} else if ("{direction}" === "bottom") {{
-                window.scrollTo({{ top: document.body.scrollHeight, behavior: 'smooth' }});
+            if ({safe_direction} === "down") {{
+                window.scrollBy({{ top: scrollPixels, behavior: 'instant' }});
+            }} else if ({safe_direction} === "up") {{
+                window.scrollBy({{ top: -scrollPixels, behavior: 'instant' }});
+            }} else if ({safe_direction} === "top") {{
+                window.scrollTo({{ top: 0, behavior: 'instant' }});
+            }} else if ({safe_direction} === "bottom") {{
+                window.scrollTo({{ top: document.body.scrollHeight, behavior: 'instant' }});
             }}
+            return {{ before, after: window.scrollY }};
         }}
         """
-        page.evaluate(script)
+        result = page.evaluate(script)
         page.wait_for_timeout(1000)  # Wait for smooth scroll to settle
-        return f"Successfully scrolled page {direction} by {amount}."
+        message = f"Successfully scrolled page {direction} by {amount}."
+        if isinstance(result, dict):
+            before = result.get("before")
+            after = result.get("after")
+            if isinstance(before, (int, float)) and isinstance(after, (int, float)) and before == after:
+                message = f"Failed to scroll page {direction} by {amount}: scroll position did not change."
+                return _record_browser_result("browser_scroll", "failed", message, page)
+        return _record_browser_result("browser_scroll", "success", message, page)
     except Exception as exc:
-        return f"Failed to scroll page: {exc}"
+        return _record_browser_result("browser_scroll", "failed", f"Failed to scroll page: {exc}", _page)
 
 
 def _browser_go_back_impl() -> str:
     """Navigate back one step in the browser's history."""
     try:
         page = _ensure_browser()
-        page.go_back(wait_until="domcontentloaded")
-        page.wait_for_timeout(2000)  # Wait for page to render
-        return "Successfully navigated back in history."
+        before_url = _safe_page_url(page)
+        response = page.go_back(wait_until="domcontentloaded")
+        _settle_page(page, timeout_ms=1500)
+        after_url = _safe_page_url(page)
+        if response is None and before_url and after_url and before_url == after_url:
+            message = "Failed to navigate back: browser history did not change."
+            return _record_browser_result("browser_go_back", "failed", message, page)
+        message = "Successfully navigated back in history."
+        if after_url:
+            message += f" URL: {after_url}."
+        return _record_browser_result("browser_go_back", "success", message, page)
     except Exception as exc:
-        return f"Failed to navigate back: {exc}"
+        return _record_browser_result("browser_go_back", "failed", f"Failed to navigate back: {exc}", _page)
 
 
 def _whatsapp_open_impl() -> str:
@@ -775,34 +1233,39 @@ def _whatsapp_open_impl() -> str:
     try:
         page = _ensure_browser()
         page.goto(WHATSAPP_WEB_URL, wait_until="domcontentloaded", timeout=20000)
-        page.wait_for_timeout(2500)
+        _settle_page(page, timeout_ms=2500)
         state = _whatsapp_page_state(page)
         if state == "login_required":
-            return "WhatsApp Web opened, but login is required. Please scan the QR code first."
+            message = "WhatsApp Web opened, but login is required. Please scan the QR code first."
+            return _record_browser_result("whatsapp_open", "login_required", message, page)
         if state == "ready":
-            return "WhatsApp Web is open and ready."
-        return "WhatsApp Web opened. I could not confirm whether it is ready yet."
+            message = "WhatsApp Web is open and ready."
+            return _record_browser_result("whatsapp_open", "success", message, page)
+        message = "WhatsApp Web opened. I could not confirm whether it is ready yet."
+        return _record_browser_result("whatsapp_open", "unknown", message, page)
     except Exception as exc:
-        return f"Failed to open WhatsApp Web: {exc}"
+        return _record_browser_result("whatsapp_open", "failed", f"Failed to open WhatsApp Web: {exc}", _page)
 
 
 def _whatsapp_find_chat_impl(contact: str) -> str:
     """Open a matching chat in WhatsApp Web."""
     contact = (contact or "").strip()
     if not contact:
-        return "Failed to find WhatsApp chat: contact is required."
+        return _record_browser_result("whatsapp_find_chat", "failed", "Failed to find WhatsApp chat: contact is required.", _page)
     try:
         page, state = _ensure_whatsapp_page()
         if state == "login_required":
-            return "WhatsApp Web login is required. Please scan the QR code first."
+            message = "WhatsApp Web login is required. Please scan the QR code first."
+            return _record_browser_result("whatsapp_find_chat", "login_required", message, page)
 
         _fill_first_available(page, WHATSAPP_SEARCH_SELECTORS, contact, timeout=7000)
         page.wait_for_timeout(1000)
         _click_matching_chat(page, contact)
-        page.wait_for_timeout(1000)
-        return f"Opened WhatsApp chat with {contact}."
+        _settle_page(page, timeout_ms=1000)
+        message = f"Opened WhatsApp chat with {contact}."
+        return _record_browser_result("whatsapp_find_chat", "success", message, page)
     except Exception as exc:
-        return f"Failed to find WhatsApp chat for {contact}: {exc}"
+        return _record_browser_result("whatsapp_find_chat", "failed", f"Failed to find WhatsApp chat for {contact}: {exc}", _page)
 
 
 def _whatsapp_draft_message_impl(contact: str, text: str) -> str:
@@ -810,20 +1273,28 @@ def _whatsapp_draft_message_impl(contact: str, text: str) -> str:
     contact = (contact or "").strip()
     text = (text or "").strip()
     if not contact:
-        return "Failed to draft WhatsApp message: contact is required."
+        return _record_browser_result("whatsapp_draft_message", "failed", "Failed to draft WhatsApp message: contact is required.", _page)
     if not text:
-        return "Failed to draft WhatsApp message: text is required."
+        return _record_browser_result("whatsapp_draft_message", "failed", "Failed to draft WhatsApp message: text is required.", _page)
     try:
         opened = _whatsapp_find_chat_impl(contact)
         if not opened.startswith("Opened WhatsApp chat"):
             return opened
 
         page = _ensure_browser()
-        _fill_first_available(page, WHATSAPP_COMPOSE_SELECTORS, text, timeout=7000)
-        page.wait_for_timeout(500)
-        return f"Drafted WhatsApp message to {contact}: {text}"
+        _, compose = _fill_first_available(page, WHATSAPP_COMPOSE_SELECTORS, text, timeout=7000)
+        try:
+            actual = compose.input_value(timeout=1000)
+            if isinstance(actual, str) and actual != text:
+                message = f"Failed to draft WhatsApp message for {contact}: draft verification failed."
+                return _record_browser_result("whatsapp_draft_message", "failed", message, page)
+        except Exception:
+            pass
+        _settle_page(page, timeout_ms=500)
+        message = f"Drafted WhatsApp message to {contact}: {text}"
+        return _record_browser_result("whatsapp_draft_message", "success", message, page)
     except Exception as exc:
-        return f"Failed to draft WhatsApp message for {contact}: {exc}"
+        return _record_browser_result("whatsapp_draft_message", "failed", f"Failed to draft WhatsApp message for {contact}: {exc}", _page)
 
 
 def _whatsapp_send_message_impl(contact: str, text: str) -> str:
@@ -831,9 +1302,9 @@ def _whatsapp_send_message_impl(contact: str, text: str) -> str:
     contact = (contact or "").strip()
     text = (text or "").strip()
     if not contact:
-        return "Failed to send WhatsApp message: contact is required."
+        return _record_browser_result("whatsapp_send_message", "failed", "Failed to send WhatsApp message: contact is required.", _page)
     if not text:
-        return "Failed to send WhatsApp message: text is required."
+        return _record_browser_result("whatsapp_send_message", "failed", "Failed to send WhatsApp message: text is required.", _page)
     try:
         opened = _whatsapp_find_chat_impl(contact)
         if not opened.startswith("Opened WhatsApp chat"):
@@ -842,10 +1313,18 @@ def _whatsapp_send_message_impl(contact: str, text: str) -> str:
         page = _ensure_browser()
         _, compose = _fill_first_available(page, WHATSAPP_COMPOSE_SELECTORS, text, timeout=7000)
         _press_enter(compose)
-        page.wait_for_timeout(1000)
-        return f"Sent WhatsApp message to {contact}: {text}"
+        _settle_page(page, timeout_ms=1000)
+        try:
+            remaining = compose.input_value(timeout=1000)
+            if isinstance(remaining, str) and remaining.strip() == text:
+                message = f"Failed to send WhatsApp message for {contact}: compose box still contains the message."
+                return _record_browser_result("whatsapp_send_message", "failed", message, page)
+        except Exception:
+            pass
+        message = f"Sent WhatsApp message to {contact}: {text}"
+        return _record_browser_result("whatsapp_send_message", "success", message, page)
     except Exception as exc:
-        return f"Failed to send WhatsApp message for {contact}: {exc}"
+        return _record_browser_result("whatsapp_send_message", "failed", f"Failed to send WhatsApp message for {contact}: {exc}", _page)
 
 
 # ----------------------------------------------------------------------------
@@ -859,6 +1338,10 @@ def browser_navigate(url: str) -> str:
 
 def browser_read_current() -> str:
     return _run_on_browser_thread(_browser_read_current_impl)
+
+
+def browser_status() -> str:
+    return _run_on_browser_thread(_browser_status_impl)
 
 
 def browser_click(selector: str) -> str:

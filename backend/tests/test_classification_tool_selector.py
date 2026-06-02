@@ -87,7 +87,7 @@ def test_selector_includes_full_browser_toolset():
     numeric-ID clicks)."""
     browser_tools = [
         "open_app", "close_app", "web_search", "open_url",
-        "browser_navigate", "browser_read_current", "browser_inspect",
+        "browser_navigate", "browser_read_current", "browser_status", "browser_inspect",
         "browser_click_best_match", "browser_click_text", "browser_click_role",
         "browser_fill_form",
         "browser_click", "browser_input", "browser_scroll", "browser_go_back",
@@ -97,9 +97,10 @@ def test_selector_includes_full_browser_toolset():
 
     selected = selector.select("cari mobil listrik dan klik hasil pertama", IntentCategory.BROWSER)
     # The newly implemented tools must be present.
-    assert selected[:12] == [
+    assert selected[:13] == [
         "browser_navigate",
         "browser_read_current",
+        "browser_status",
         "browser_inspect",
         "browser_click_best_match",
         "browser_click_text",
@@ -113,6 +114,7 @@ def test_selector_includes_full_browser_toolset():
     ]
     assert "browser_inspect" in selected
     assert "browser_read_current" in selected
+    assert "browser_status" in selected
     assert "browser_click_best_match" in selected
     assert "browser_click_text" in selected
     assert "browser_click_role" in selected
@@ -128,12 +130,14 @@ def test_selector_includes_full_browser_toolset():
     default_selector = ToolSelector(ToolsConfig().enabled)
     default_selected = default_selector.select("buka wikipedia dan rangkum artikelnya", IntentCategory.BROWSER)
     assert "browser_read_current" in default_selected
+    assert "browser_status" in default_selected
     assert "browser_click_best_match" in default_selected
     assert "browser_fill_form" in default_selected
     assert "browser_go_back" in default_selected
 
     whatsapp_selected = default_selector.select("Tolong buka WhatsApp di Brave", IntentCategory.BROWSER)
     assert "browser_navigate" in whatsapp_selected
+    assert "browser_status" in whatsapp_selected
     assert "browser_go_back" in whatsapp_selected
     assert "whatsapp_open" in whatsapp_selected
     assert "whatsapp_find_chat" in whatsapp_selected
@@ -154,6 +158,7 @@ def test_default_registry_exposes_browser_intent_tools():
         for tool in registry.list_definitions()
     }
     assert "browser_click_best_match" in definitions
+    assert "browser_status" in definitions
     assert "browser_click_text" in definitions
     assert "browser_click_role" in definitions
     assert "browser_fill_form" in definitions

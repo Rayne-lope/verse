@@ -748,6 +748,15 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             parameters={"type": "object", "properties": {}},
             handler=browser.browser_read_current,
         ),
+        "browser_status": Tool(
+            name="browser_status",
+            description=(
+                "Report the active Playwright browser session/page status, current URL/title, "
+                "page readiness, and last browser action result."
+            ),
+            parameters={"type": "object", "properties": {}},
+            handler=browser.browser_status,
+        ),
         "browser_click": Tool(
             name="browser_click",
             description="Click an element (button, link, input) on the active page using a selector.",

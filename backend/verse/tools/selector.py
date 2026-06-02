@@ -6,6 +6,7 @@ from verse.intent.classifier import IntentCategory
 BROWSER_TOOL_ORDER = [
     "browser_navigate",
     "browser_read_current",
+    "browser_status",
     "browser_inspect",
     "browser_click_best_match",
     "browser_click_text",

@@ -78,6 +78,7 @@ class ToolsConfig:
             "get_brightness",
             "browser_navigate",
             "browser_read_current",
+            "browser_status",
             "browser_click",
             "browser_click_text",
             "browser_click_role",

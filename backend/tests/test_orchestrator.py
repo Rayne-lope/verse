@@ -619,6 +619,83 @@ def test_browser_failed_action_result_blocks_fake_success_reply():
     assert "match is ambiguous" in reply
 
 
+def test_browser_fill_form_submit_requires_explicit_intent():
+    calls = []
+    tool_call = {
+        "id": "call_form",
+        "type": "function",
+        "function": {
+            "name": "browser_fill_form",
+            "arguments": '{"fields": [{"target": "Email", "value": "rayne@example.com"}], "submit": true}',
+        },
+    }
+
+    def browser_fill_form(fields, submit=False, submit_label=""):
+        calls.append((fields, submit, submit_label))
+        return "Successfully filled form."
+
+    llm = FakeLLM([
+        LLMResponse(text="", tool_calls=[tool_call]),
+        LLMResponse(text="Berhasil, form sudah aku submit.", tool_calls=[]),
+    ])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        _registry_with("browser_fill_form", browser_fill_form),
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_fill_form"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond("isi form ini di browser", []))
+
+    assert calls == []
+    assert reply.startswith("Aku belum bisa menyelesaikan aksi browser-nya:")
+    assert "Blocked browser_fill_form" in reply
+
+
+def test_whatsapp_send_tool_requires_explicit_send_intent():
+    calls = []
+    tool_call = {
+        "id": "call_send",
+        "type": "function",
+        "function": {
+            "name": "whatsapp_send_message",
+            "arguments": '{"contact": "Ridho Maulana", "text": "oke gas"}',
+        },
+    }
+
+    def whatsapp_send_message(contact, text):
+        calls.append((contact, text))
+        return f"Sent WhatsApp message to {contact}: {text}"
+
+    llm = FakeLLM([
+        LLMResponse(text="", tool_calls=[tool_call]),
+        LLMResponse(text="Sudah, pesan WhatsApp ke Ridho aku kirim.", tool_calls=[]),
+    ])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        _registry_with("whatsapp_send_message", whatsapp_send_message),
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["whatsapp_send_message"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond("cek WhatsApp di Brave", []))
+
+    assert calls == []
+    assert reply.startswith("Aku belum menjalankan tool WhatsApp")
+
+
 def test_idle_state_does_not_close_browser_session():
     orch, _ = _orchestrator(
         FakeSTT(""),

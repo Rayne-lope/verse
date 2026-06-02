@@ -3,6 +3,7 @@ import pytest
 from verse.tools.builtin.browser import (
     browser_inspect,
     browser_read_current,
+    browser_status,
     browser_click,
     browser_click_best_match,
     browser_click_role,
@@ -24,11 +25,21 @@ def cleanup_browser_state():
     b._playwright = None
     b._context = None
     b._page = None
+    b._last_browser_result = {
+        "action": "none",
+        "status": "unknown",
+        "message": "No browser action has run yet.",
+    }
     yield
     # Cleanup after test
     b._playwright = None
     b._context = None
     b._page = None
+    b._last_browser_result = {
+        "action": "none",
+        "status": "unknown",
+        "message": "No browser action has run yet.",
+    }
 
 
 def test_browser_inspect_no_elements():
@@ -454,6 +465,48 @@ def test_browser_scroll():
         script = mock_page.evaluate.call_args[0][0]
         assert '"down" === "down"' in script
         assert '"half" === "half"' in script
+
+
+def test_browser_scroll_reports_noop_when_position_unchanged():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = {"before": 120, "after": 120}
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_scroll("down", "half")
+        assert "Failed to scroll page down by half" in res
+        assert "did not change" in res
+
+
+def test_browser_status_reports_recent_failed_scroll():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.url = "https://example.com"
+    mock_page.evaluate.side_effect = [
+        {"before": 120, "after": 120},
+        "complete",
+    ]
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        browser_scroll("down", "half")
+        res = browser_status()
+        assert "Last action: browser_scroll (failed)" in res
 
 
 def test_browser_go_back():

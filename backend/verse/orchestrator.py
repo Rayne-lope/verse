@@ -29,8 +29,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "Available tools are authoritative: if a tool exists, you can use it. "
     "When the user asks to browse, open a web page, read a page, search in a browser, click/type/fill forms/scroll, or summarize web content, "
     "you MUST use browser tools instead of claiming you cannot browse or read web pages. "
+    "Use browser_status when you need to diagnose the active browser page or last browser action. "
     "For natural browser clicks or form filling, prefer browser_click_best_match, browser_click_text, browser_click_role, and browser_fill_form. "
-    "Never claim a browser click, fill, or submit succeeded unless the browser tool result says it succeeded. "
+    "Tool results are authoritative: report failed, ambiguous, login_required, blocked, or not_found browser results plainly. "
+    "Never claim a browser click, fill, submit, or send succeeded unless the browser tool result says it succeeded. "
     "When the user asks to use WhatsApp in Brave or a browser, use WhatsApp Web/browser tools, not iMessage. "
     "Never say a WhatsApp message was sent unless whatsapp_send_message completed successfully in the current flow. "
     "CRITICAL: When the user asks to change or check system settings (volume, brightness, mute, dark mode, DND), "
@@ -67,10 +69,11 @@ def _project_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 BROWSER_TURN_DIRECTIVE = (
     "Browser turn directive: Verse has Playwright browser tools. For this user request, "
-    "call browser_navigate, browser_read_current, browser_inspect, browser_click, "
+    "call browser_navigate, browser_read_current, browser_status, browser_inspect, browser_click, "
     "browser_click_text, browser_click_role, browser_click_best_match, browser_input, "
     "browser_fill_form, browser_scroll, or browser_go_back before giving the final answer. "
     "For natural click/fill requests, prefer intent/form tools over raw CSS selectors. "
+    "Failed or ambiguous tool output must be reported plainly, not converted into success. "
     "Do not say you cannot browse, read pages, click, type, fill forms, or summarize web content."
 )
 
@@ -416,7 +419,62 @@ BROWSER_ACTION_TOOL_NAMES = {
     "browser_click_role",
     "browser_click_best_match",
     "browser_fill_form",
+    "whatsapp_find_chat",
+    "whatsapp_draft_message",
+    "whatsapp_send_message",
 }
+
+
+def _parse_tool_call_arguments(tool_call: dict[str, Any]) -> dict[str, Any]:
+    raw = tool_call.get("function", {}).get("arguments")
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _truthy_argument(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y", "on"}
+    return bool(value)
+
+
+def _has_explicit_browser_submit_intent(transcript: str) -> bool:
+    normalized = _normalize_turn_text(transcript)
+    return any(
+        marker in normalized
+        for marker in (
+            "submit", "send form", "kirim form", "kirim", "login",
+            "masuk", "continue", "lanjut", "daftar", "register",
+            "klik kirim", "klik login", "tekan kirim", "tekan login",
+        )
+    )
+
+
+def _blocked_browser_tool_result(tool_call: dict[str, Any], transcript: str) -> str:
+    name = tool_call.get("function", {}).get("name", "")
+    args = _parse_tool_call_arguments(tool_call)
+    if name == "browser_fill_form" and _truthy_argument(args.get("submit")):
+        if not _has_explicit_browser_submit_intent(transcript):
+            return (
+                "Blocked browser_fill_form: submit=true requires an explicit user "
+                "request in the current task."
+            )
+    if name == "whatsapp_send_message" and not _has_whatsapp_send_intent(transcript):
+        return (
+            "Blocked whatsapp_send_message: sending requires an explicit WhatsApp "
+            "send/reply request in the current task."
+        )
+    return ""
 
 
 def _looks_like_browser_action_success_claim(text: str) -> bool:
@@ -425,7 +483,8 @@ def _looks_like_browser_action_success_claim(text: str) -> bool:
         return False
     success_terms = (
         "berhasil", "sudah", "done", "success", "clicked", "filled",
-        "aku klik", "aku isi", "form", "submit", "terisi",
+        "sent", "terkirim", "aku klik", "aku isi", "aku kirim",
+        "form", "submit", "terisi",
     )
     return any(term in normalized for term in success_terms)
 
@@ -450,9 +509,17 @@ def _failed_browser_action_result(messages: list[dict[str, Any]]) -> str:
         lowered = content.lower()
         if (
             content.startswith("Failed")
+            or content.startswith("Blocked")
+            or content.startswith("Tool '")
             or "ambiguous" in lowered
             or "no confident" in lowered
             or "no matching" in lowered
+            or "not found" in lowered
+            or "login is required" in lowered
+            or "could not confirm" in lowered
+            or "could not verify" in lowered
+            or "cannot verify" in lowered
+            or "did not change" in lowered
         ):
             return content
     return ""
@@ -516,6 +583,7 @@ CANNED_ACKNOWLEDGEMENTS = {
     "web_search": "Bentar, aku cari dulu.",
     "browser_navigate": "Bentar, aku buka halamannya dulu.",
     "browser_read_current": "Bentar, aku baca halaman ini dulu.",
+    "browser_status": "Bentar, aku cek status browser dulu.",
     "browser_inspect": "Bentar, aku cek elemen halamannya dulu.",
     "browser_click": "Bentar, aku klik dulu.",
     "browser_click_text": "Bentar, aku klik dulu.",
@@ -1265,6 +1333,18 @@ class Orchestrator:
             )
             for tool_call in tool_calls:
                 name = tool_call.get("function", {}).get("name", "")
+                blocked_result = _blocked_browser_tool_result(tool_call, transcript)
+                if blocked_result:
+                    self._emit_tool_executed_for_turn(turn, name, blocked_result)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.get("id"),
+                            "content": blocked_result,
+                        }
+                    )
+                    continue
+
                 if name in CANNED_ACKNOWLEDGEMENTS and self._current_turn is not None:
                     if not getattr(self._current_turn, "canned_ack_spoken", False):
                         self._current_turn.canned_ack_spoken = True
@@ -1600,6 +1680,19 @@ class Orchestrator:
             )
             for tool_call in response.tool_calls:
                 name = tool_call.get("function", {}).get("name", "")
+                blocked_result = _blocked_browser_tool_result(tool_call, transcript)
+                if blocked_result:
+                    if self.on_tool_executed:
+                        self.on_tool_executed(name, blocked_result)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.get("id"),
+                            "content": blocked_result,
+                        }
+                    )
+                    continue
+
                 if name in CANNED_ACKNOWLEDGEMENTS and self._current_turn is not None:
                     if not getattr(self._current_turn, "canned_ack_spoken", False):
                         self._current_turn.canned_ack_spoken = True
@@ -1786,7 +1879,7 @@ class Orchestrator:
     def _reply_for_whatsapp_tool(self, tool_name: str, result: str, contact: str | None = None) -> str:
         lower = result.lower()
         target = contact or "kontak itu"
-        if result.startswith("Failed") or result.startswith("Tool '"):
+        if result.startswith("Failed") or result.startswith("Blocked") or result.startswith("Tool '"):
             return f"Aku belum bisa menyelesaikan aksi WhatsApp-nya: {result}"
 
         if tool_name == "whatsapp_open":
