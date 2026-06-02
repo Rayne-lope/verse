@@ -192,9 +192,11 @@ function VoiceSection() {
       <div className="settings-row">
         <span className="settings-label">Voice ID</span>
         <input
+          key={tts.voice_id}
           className="settings-input"
           type="text"
           defaultValue={tts.voice_id}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== tts.voice_id) send({ type: "update_config", section: "tts", key: "voice_id", value: v });
@@ -205,10 +207,12 @@ function VoiceSection() {
       <div className="settings-row">
         <span className="settings-label">Model</span>
         <input
-          className="settings-input"
+          key={tts.model}
+          className="settings-input settings-input-wide"
           type="text"
           list="gemini-tts-models"
           defaultValue={tts.model}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== tts.model) send({ type: "update_config", section: "tts", key: "model", value: v });
@@ -223,9 +227,11 @@ function VoiceSection() {
       <div className="settings-row">
         <span className="settings-label">Base URL</span>
         <input
-          className="settings-input"
+          key={tts.base_url}
+          className="settings-input settings-input-wide"
           type="text"
           defaultValue={tts.base_url}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           onBlur={(e) => {
             const v = e.target.value.trim();
             if (v && v !== tts.base_url) send({ type: "update_config", section: "tts", key: "base_url", value: v });
@@ -236,12 +242,14 @@ function VoiceSection() {
       <div className="settings-row">
         <span className="settings-label">Speed</span>
         <input
+          key={tts.speed}
           className="settings-input"
           type="number"
           min={0.5}
           max={3.0}
           step={0.1}
           defaultValue={tts.speed}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
           onBlur={(e) => {
             const v = parseFloat(e.target.value);
             if (!isNaN(v) && v !== tts.speed) send({ type: "update_config", section: "tts", key: "speed", value: v });
