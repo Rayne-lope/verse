@@ -485,6 +485,140 @@ def test_browser_streaming_suppresses_long_pre_tool_text():
     assert "Samudra menutupi sebagian besar Bumi." in tts.spoken
 
 
+def test_browser_turn_exposes_intent_and_form_tools():
+    registry = _registry_with_handlers({
+        "browser_click_best_match": lambda query: "clicked",
+        "browser_click_text": lambda text, exact=False: "clicked",
+        "browser_click_role": lambda role, name, exact=False: "clicked",
+        "browser_fill_form": lambda fields, submit=False, submit_label="": "filled",
+        "browser_go_back": lambda: "back",
+    })
+    llm = FakeLLM([LLMResponse(text="Aku cek dulu.", tool_calls=[])])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=[
+                "browser_click_best_match",
+                "browser_click_text",
+                "browser_click_role",
+                "browser_fill_form",
+                "browser_go_back",
+            ]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    asyncio.run(orch._respond("klik tombol login di browser", []))
+
+    _, tools = llm.requests[0]
+    assert tools is not None
+    names = [tool["function"]["name"] for tool in tools]
+    assert names == [
+        "browser_click_best_match",
+        "browser_click_text",
+        "browser_click_role",
+        "browser_fill_form",
+        "browser_go_back",
+    ]
+
+
+def test_browser_streaming_suppresses_pre_tool_text_for_intent_click():
+    calls = []
+    tool_call = {
+        "id": "call_click",
+        "type": "function",
+        "function": {
+            "name": "browser_click_best_match",
+            "arguments": '{"query": "Login"}',
+        },
+    }
+
+    class StreamingClickLLM:
+        def __init__(self):
+            self.requests = []
+
+        async def stream_chat(self, messages, tools=None):
+            self.requests.append((messages, tools))
+            if len(self.requests) == 1:
+                yield LLMStreamEvent(type="text_delta", text="Aku akan jelaskan panjang sebelum klik.")
+                yield LLMStreamEvent(type="tool_call_done", tool_call=tool_call)
+                yield LLMStreamEvent(type="done")
+            else:
+                yield LLMStreamEvent(type="text_delta", text="Tombol Login sudah aku klik.")
+                yield LLMStreamEvent(type="done")
+
+    registry = _registry_with(
+        "browser_click_best_match",
+        lambda query: calls.append(query) or "Successfully clicked best match for 'Login': [1] button.",
+    )
+    tts = FakeTTS()
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        StreamingClickLLM(),
+        tts,
+        registry,
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_click_best_match"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond_and_speak_streaming("klik tombol Login di browser", []))
+
+    assert reply == "Tombol Login sudah aku klik."
+    assert calls == ["Login"]
+    spoken = " ".join(tts.spoken)
+    assert "jelaskan panjang" not in spoken
+    assert "Bentar, aku cari elemen yang cocok dulu." in tts.spoken
+    assert "Tombol Login sudah aku klik." in tts.spoken
+
+
+def test_browser_failed_action_result_blocks_fake_success_reply():
+    calls = []
+    tool_call = {
+        "id": "call_click",
+        "type": "function",
+        "function": {
+            "name": "browser_click_best_match",
+            "arguments": '{"query": "Login"}',
+        },
+    }
+
+    def browser_click_best_match(query):
+        calls.append(query)
+        return "Failed to click best match for 'Login': match is ambiguous.\nCandidates:\n[1] button - text=\"Login\""
+
+    llm = FakeLLM([
+        LLMResponse(text="", tool_calls=[tool_call]),
+        LLMResponse(text="Berhasil, aku sudah klik tombol Login.", tool_calls=[]),
+    ])
+    orch, _ = _orchestrator(
+        FakeSTT(""),
+        llm,
+        FakeTTS(),
+        _registry_with("browser_click_best_match", browser_click_best_match),
+        StateMachine(initial_state=State.THINKING),
+        config=AppConfig(
+            tools=ToolsConfig(enabled=["browser_click_best_match"]),
+            debug=DebugConfig(session_logging=False),
+            memory=MemoryConfig(enabled=False),
+        ),
+    )
+
+    reply = asyncio.run(orch._respond("klik tombol Login di browser", []))
+
+    assert calls == ["Login"]
+    assert reply.startswith("Aku belum bisa menyelesaikan aksi browser-nya:")
+    assert "match is ambiguous" in reply
+
+
 def test_idle_state_does_not_close_browser_session():
     orch, _ = _orchestrator(
         FakeSTT(""),

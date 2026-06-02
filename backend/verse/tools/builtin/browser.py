@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, TypeVar
 from playwright.sync_api import sync_playwright, BrowserContext, Page, Playwright
@@ -34,6 +35,11 @@ WHATSAPP_COMPOSE_SELECTORS = (
     "div[role='textbox'][aria-label*='Ketik pesan']",
     "div[contenteditable='true'][aria-label*='Type a message']",
     "div[contenteditable='true'][aria-label*='Ketik pesan']",
+)
+
+SUBMIT_LABELS = (
+    "submit", "send", "login", "continue", "search",
+    "kirim", "masuk", "lanjut", "cari",
 )
 
 
@@ -175,6 +181,295 @@ def _press_enter(locator: Any, *, timeout: int = 5000) -> None:
         locator.press("Enter")
 
 
+def _normalize_match_text(value: Any) -> str:
+    text = str(value or "").lower()
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _element_search_text(element: dict[str, Any]) -> str:
+    parts = [
+        element.get("text"),
+        element.get("aria_label"),
+        element.get("placeholder"),
+        element.get("name"),
+        element.get("label"),
+        element.get("role"),
+        element.get("tag"),
+        element.get("type"),
+    ]
+    return _normalize_match_text(" ".join(str(part or "") for part in parts))
+
+
+def _collect_interactive_elements(page: Page, *, badge: bool = False) -> list[dict[str, Any]]:
+    """Collect visible interactive elements and optionally render numeric badges."""
+    script = """
+    (badge) => {
+        document.querySelectorAll('.verse-element-badge').forEach(b => b.remove());
+
+        if (badge) {
+            let styleEl = document.getElementById('verse-badge-styles');
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = 'verse-badge-styles';
+                styleEl.innerHTML = `
+                    .verse-element-badge {
+                        position: absolute;
+                        background-color: #ff3366 !important;
+                        color: white !important;
+                        font-size: 11px !important;
+                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+                        font-weight: bold !important;
+                        padding: 2px 5px !important;
+                        border-radius: 4px !important;
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important;
+                        z-index: 100000000 !important;
+                        pointer-events: none !important;
+                        text-shadow: none !important;
+                        border: 1px solid white !important;
+                        line-height: 1 !important;
+                    }
+                `;
+                document.head.appendChild(styleEl);
+            }
+        }
+
+        const interactiveSelector = [
+            'a',
+            'button',
+            'input:not([type="hidden"])',
+            'textarea',
+            'select',
+            '[role="button"]',
+            '[role="link"]',
+            '[role="checkbox"]',
+            '[role="radio"]',
+            '[role="textbox"]',
+            '[role="combobox"]',
+            '[contenteditable="true"]',
+            '[contenteditable=""]'
+        ].join(', ');
+        const allElements = Array.from(document.querySelectorAll(interactiveSelector));
+
+        const labelFor = (el) => {
+            const labels = [];
+            if (el.id) {
+                document.querySelectorAll(`label[for="${CSS.escape(el.id)}"]`).forEach(label => {
+                    const text = (label.innerText || label.textContent || '').replace(/\\s+/g, ' ').trim();
+                    if (text) labels.push(text);
+                });
+            }
+            let parent = el.closest('label');
+            if (parent) {
+                const text = (parent.innerText || parent.textContent || '').replace(/\\s+/g, ' ').trim();
+                if (text) labels.push(text);
+            }
+            const aria = el.getAttribute('aria-labelledby');
+            if (aria) {
+                aria.split(/\\s+/).forEach(id => {
+                    const node = document.getElementById(id);
+                    const text = node ? (node.innerText || node.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+                    if (text) labels.push(text);
+                });
+            }
+            return [...new Set(labels)].join(' ');
+        };
+
+        const implicitRole = (el) => {
+            const explicit = el.getAttribute('role') || '';
+            if (explicit) return explicit;
+            const tag = el.tagName.toLowerCase();
+            const type = (el.getAttribute('type') || '').toLowerCase();
+            if (tag === 'button') return 'button';
+            if (tag === 'a') return 'link';
+            if (tag === 'textarea') return 'textbox';
+            if (tag === 'select') return 'combobox';
+            if (tag === 'input') {
+                if (type === 'checkbox') return 'checkbox';
+                if (type === 'radio') return 'radio';
+                if (type === 'submit' || type === 'button') return 'button';
+                return 'textbox';
+            }
+            if (el.isContentEditable) return 'textbox';
+            return '';
+        };
+
+        const visibleElements = allElements.filter(el => {
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) return false;
+
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+
+            return true;
+        });
+
+        const results = [];
+        let id = 1;
+
+        visibleElements.forEach(el => {
+            el.setAttribute('data-verse-id', String(id));
+            const rect = el.getBoundingClientRect();
+
+            if (badge) {
+                const badgeEl = document.createElement('span');
+                badgeEl.className = 'verse-element-badge';
+                badgeEl.innerText = String(id);
+                badgeEl.style.top = (rect.top + window.scrollY) + 'px';
+                badgeEl.style.left = (rect.left + window.scrollX) + 'px';
+                document.body.appendChild(badgeEl);
+            }
+
+            let text = '';
+            const tag = el.tagName.toLowerCase();
+            if (tag === 'input' || tag === 'textarea') {
+                text = el.value || '';
+            } else {
+                text = el.innerText || el.textContent || '';
+            }
+            text = text.replace(/\\s+/g, ' ').trim();
+            if (text.length > 80) text = text.substring(0, 77) + '...';
+
+            results.push({
+                id,
+                tag,
+                role: implicitRole(el),
+                type: el.getAttribute('type') || '',
+                name: el.getAttribute('name') || '',
+                placeholder: el.getAttribute('placeholder') || '',
+                aria_label: el.getAttribute('aria-label') || '',
+                label: labelFor(el),
+                text,
+                visible: true,
+                bounding_box: {
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height
+                }
+            });
+            id++;
+        });
+
+        return results;
+    }
+    """
+    elements = page.evaluate(script, badge)
+    return elements if isinstance(elements, list) else []
+
+
+def _summarize_elements(elements: list[dict[str, Any]], *, limit: int = 5) -> str:
+    if not elements:
+        return "No candidates found."
+    lines = []
+    for element in elements[:limit]:
+        parts = []
+        if element.get("role"):
+            parts.append(f'role="{element["role"]}"')
+        if element.get("name"):
+            parts.append(f'name="{element["name"]}"')
+        if element.get("placeholder"):
+            parts.append(f'placeholder="{element["placeholder"]}"')
+        if element.get("aria_label"):
+            parts.append(f'aria-label="{element["aria_label"]}"')
+        if element.get("label"):
+            parts.append(f'label="{element["label"]}"')
+        if element.get("text"):
+            parts.append(f'text="{element["text"]}"')
+        details = ", ".join(parts) or "no text metadata"
+        lines.append(f"[{element.get('id')}] {element.get('tag', 'element')} - {details}")
+    return "\n".join(lines)
+
+
+def _score_element(query: str, element: dict[str, Any]) -> int:
+    normalized_query = _normalize_match_text(query)
+    if not normalized_query:
+        return 0
+
+    weighted_fields = (
+        ("text", 95),
+        ("aria_label", 90),
+        ("label", 90),
+        ("placeholder", 80),
+        ("name", 70),
+        ("role", 45),
+        ("tag", 30),
+        ("type", 25),
+    )
+    score = 0
+    for field, weight in weighted_fields:
+        value = _normalize_match_text(element.get(field))
+        if not value:
+            continue
+        if value == normalized_query:
+            score = max(score, weight + 35)
+        elif normalized_query in value:
+            score = max(score, weight + 15)
+        elif value in normalized_query:
+            score = max(score, weight)
+
+    haystack = _element_search_text(element)
+    query_tokens = set(normalized_query.split())
+    haystack_tokens = set(haystack.split())
+    if query_tokens:
+        overlap = len(query_tokens & haystack_tokens)
+        score += min(35, overlap * 10)
+
+    role = _normalize_match_text(element.get("role"))
+    if any(token in normalized_query for token in ("klik", "click", "tombol", "button")) and role == "button":
+        score += 10
+    if any(token in normalized_query for token in ("link", "tautan")) and role == "link":
+        score += 10
+    return score
+
+
+def _rank_elements(query: str, elements: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    ranked = [(_score_element(query, element), element) for element in elements]
+    ranked = [(score, element) for score, element in ranked if score > 0]
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return ranked
+
+
+def _click_element_by_id(page: Page, element: dict[str, Any], original_query: str) -> str:
+    element_id = element.get("id")
+    if element_id is None:
+        return f"Failed to click best match for '{original_query}': element has no verse id."
+    page.click(f"[data-verse-id='{element_id}']", timeout=5000)
+    page.wait_for_timeout(1000)
+    return f"Successfully clicked best match for '{original_query}': [{element_id}] {element.get('tag', 'element')}."
+
+
+def _fallback_click_best_match(page: Page, query: str, *, role: str | None = None) -> str:
+    elements = _collect_interactive_elements(page)
+    if role:
+        normalized_role = _normalize_match_text(role)
+        elements = [
+            element for element in elements
+            if _normalize_match_text(element.get("role")) == normalized_role
+        ]
+    ranked = _rank_elements(query, elements)
+    if not ranked:
+        return f"Failed to click best match for '{query}': no matching interactive element found."
+
+    top_score, top = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0
+    if top_score < 70:
+        candidates = _summarize_elements([element for _, element in ranked])
+        return f"Failed to click best match for '{query}': no confident match.\nCandidates:\n{candidates}"
+    if second_score >= top_score - 8:
+        candidates = _summarize_elements([element for _, element in ranked])
+        return f"Failed to click best match for '{query}': match is ambiguous.\nCandidates:\n{candidates}"
+    return _click_element_by_id(page, top, query)
+
+
+def _is_truthy_form_value(value: str) -> bool:
+    return _normalize_match_text(value) in ("true", "yes", "y", "on", "1", "checked", "aktif")
+
+
+def _is_falsy_form_value(value: str) -> bool:
+    return _normalize_match_text(value) in ("false", "no", "n", "off", "0", "unchecked", "mati")
+
+
 def _browser_navigate_impl(url: str) -> str:
     """Navigate to a URL and return the cleaned textual contents of the page."""
     try:
@@ -234,6 +529,147 @@ def _browser_input_impl(selector: str, text: str) -> str:
         return f"Failed to enter text into '{selector}': {exc}"
 
 
+def _browser_click_text_impl(text: str, exact: bool = False) -> str:
+    """Click an element by visible text, falling back to metadata matching."""
+    text = (text or "").strip()
+    if not text:
+        return "Failed to click by text: text is required."
+    try:
+        page = _ensure_browser()
+        try:
+            page.get_by_text(text, exact=exact).first.click(timeout=5000)
+            page.wait_for_timeout(1000)
+            return f"Successfully clicked text '{text}'."
+        except Exception:
+            return _fallback_click_best_match(page, text)
+    except Exception as exc:
+        return f"Failed to click text '{text}': {exc}"
+
+
+def _browser_click_role_impl(role: str, name: str, exact: bool = False) -> str:
+    """Click an element by accessibility role and accessible name."""
+    role = (role or "").strip()
+    name = (name or "").strip()
+    if not role:
+        return "Failed to click by role: role is required."
+    if not name:
+        return "Failed to click by role: name is required."
+    try:
+        page = _ensure_browser()
+        try:
+            page.get_by_role(role, name=name, exact=exact).first.click(timeout=5000)
+            page.wait_for_timeout(1000)
+            return f"Successfully clicked {role} '{name}'."
+        except Exception:
+            return _fallback_click_best_match(page, name, role=role)
+    except Exception as exc:
+        return f"Failed to click {role} '{name}': {exc}"
+
+
+def _browser_click_best_match_impl(query: str) -> str:
+    """Click the best matching visible interactive element for a natural-language query."""
+    query = (query or "").strip()
+    if not query:
+        return "Failed to click best match: query is required."
+    try:
+        page = _ensure_browser()
+        return _fallback_click_best_match(page, query)
+    except Exception as exc:
+        return f"Failed to click best match for '{query}': {exc}"
+
+
+def _fill_form_field(page: Page, target: str, value: str) -> str:
+    elements = _collect_interactive_elements(page)
+    fillable = []
+    for element in elements:
+        tag = _normalize_match_text(element.get("tag"))
+        role = _normalize_match_text(element.get("role"))
+        element_type = _normalize_match_text(element.get("type"))
+        if (
+            tag in ("input", "textarea", "select")
+            or role in ("textbox", "combobox", "checkbox", "radio")
+            or element_type in ("text", "email", "password", "search", "tel", "url", "number", "checkbox", "radio")
+        ):
+            fillable.append(element)
+
+    ranked = _rank_elements(target, fillable)
+    if not ranked:
+        return f"Failed to fill '{target}': no matching field found."
+
+    top_score, element = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0
+    if top_score < 60:
+        return f"Failed to fill '{target}': no confident field match.\nCandidates:\n{_summarize_elements([item[1] for item in ranked])}"
+    if second_score >= top_score - 8:
+        return f"Failed to fill '{target}': field match is ambiguous.\nCandidates:\n{_summarize_elements([item[1] for item in ranked])}"
+
+    element_id = element.get("id")
+    if element_id is None:
+        return f"Failed to fill '{target}': matched field has no verse id."
+
+    selector = f"[data-verse-id='{element_id}']"
+    tag = _normalize_match_text(element.get("tag"))
+    role = _normalize_match_text(element.get("role"))
+    element_type = _normalize_match_text(element.get("type"))
+
+    if tag == "select" or role == "combobox":
+        page.select_option(selector, value, timeout=5000)
+    elif element_type == "checkbox" or role == "checkbox":
+        if _is_truthy_form_value(value):
+            page.check(selector, timeout=5000)
+        elif _is_falsy_form_value(value):
+            page.uncheck(selector, timeout=5000)
+        else:
+            return f"Failed to fill '{target}': checkbox value must be true/false/on/off."
+    elif element_type == "radio" or role == "radio":
+        if _is_falsy_form_value(value):
+            return f"Failed to fill '{target}': radio fields can only be selected, not unset."
+        page.check(selector, timeout=5000)
+    else:
+        page.fill(selector, value, timeout=5000)
+    return f"Filled '{target}' with '{value}'."
+
+
+def _browser_fill_form_impl(
+    fields: list[dict[str, Any]],
+    submit: bool = False,
+    submit_label: str = "",
+) -> str:
+    """Fill multiple form fields by label/name/placeholder/aria text."""
+    if not isinstance(fields, list) or not fields:
+        return "Failed to fill form: fields must be a non-empty list."
+    try:
+        page = _ensure_browser()
+        results: list[str] = []
+        for field in fields:
+            if not isinstance(field, dict):
+                return "Failed to fill form: each field must be an object with target and value."
+            target = str(field.get("target") or "").strip()
+            value = str(field.get("value") or "")
+            if not target:
+                return "Failed to fill form: every field needs a target."
+            result = _fill_form_field(page, target, value)
+            results.append(result)
+            if result.startswith("Failed"):
+                return "\n".join(results)
+
+        page.wait_for_timeout(500)
+        if submit:
+            labels = [submit_label.strip()] if submit_label.strip() else list(SUBMIT_LABELS)
+            submit_result = ""
+            for label in labels:
+                submit_result = _fallback_click_best_match(page, label, role="button")
+                if submit_result.startswith("Successfully"):
+                    break
+            results.append(f"Submit result: {submit_result}")
+            if not submit_result.startswith("Successfully"):
+                return "\n".join(results)
+
+        return "Successfully filled form.\n" + "\n".join(results)
+    except Exception as exc:
+        return f"Failed to fill form: {exc}"
+
+
 def _browser_close_impl() -> str:
     """Close the active browser session and release all associated processes."""
     global _playwright, _context, _page
@@ -258,94 +694,7 @@ def _browser_inspect_impl() -> str:
     render visual badges on the page, and return a text summary of these elements."""
     try:
         page = _ensure_browser()
-        
-        # JS script to tag visible interactive elements and collect metadata
-        script = """
-        () => {
-            // Remove existing badges
-            document.querySelectorAll('.verse-element-badge').forEach(b => b.remove());
-            
-            // Inject CSS styles if missing
-            let styleEl = document.getElementById('verse-badge-styles');
-            if (!styleEl) {
-                styleEl = document.createElement('style');
-                styleEl.id = 'verse-badge-styles';
-                styleEl.innerHTML = `
-                    .verse-element-badge {
-                        position: absolute;
-                        background-color: #ff3366 !important;
-                        color: white !important;
-                        font-size: 11px !important;
-                        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-                        font-weight: bold !important;
-                        padding: 2px 5px !important;
-                        border-radius: 4px !important;
-                        box-shadow: 0 2px 5px rgba(0,0,0,0.3) !important;
-                        z-index: 100000000 !important;
-                        pointer-events: none !important;
-                        text-shadow: none !important;
-                        border: 1px solid white !important;
-                        line-height: 1 !important;
-                    }
-                `;
-                document.head.appendChild(styleEl);
-            }
-            
-            const interactiveSelector = 'a, button, input:not([type="hidden"]), textarea, select, [role="button"], [role="link"], [role="checkbox"], [contenteditable="true"], [contenteditable=""]';
-            const allElements = Array.from(document.querySelectorAll(interactiveSelector));
-            
-            const visibleElements = allElements.filter(el => {
-                const rect = el.getBoundingClientRect();
-                if (rect.width <= 0 || rect.height <= 0) return false;
-                
-                const style = window.getComputedStyle(el);
-                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                
-                return true;
-            });
-            
-            const results = [];
-            let id = 1;
-            
-            visibleElements.forEach(el => {
-                el.setAttribute('data-verse-id', String(id));
-                
-                // Calculate position for badge
-                const rect = el.getBoundingClientRect();
-                const badge = document.createElement('span');
-                badge.className = 'verse-element-badge';
-                badge.innerText = String(id);
-                badge.style.top = (rect.top + window.scrollY) + 'px';
-                badge.style.left = (rect.left + window.scrollX) + 'px';
-                document.body.appendChild(badge);
-                
-                // Get display text
-                let text = '';
-                if (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'textarea') {
-                    text = el.value || '';
-                } else {
-                    text = el.innerText || el.textContent || '';
-                }
-                text = text.replace(/\\s+/g, ' ').trim();
-                if (text.length > 60) text = text.substring(0, 57) + '...';
-                
-                results.push({
-                    id: id,
-                    tag: el.tagName.toLowerCase(),
-                    type: el.getAttribute('type') || '',
-                    name: el.getAttribute('name') || '',
-                    placeholder: el.getAttribute('placeholder') || '',
-                    aria_label: el.getAttribute('aria-label') || '',
-                    text: text
-                });
-                id++;
-            });
-            
-            return results;
-        }
-        """
-        
-        elements = page.evaluate(script)
+        elements = _collect_interactive_elements(page, badge=True)
         if not elements:
             return "No interactive elements found on the current page."
             
@@ -358,6 +707,10 @@ def _browser_inspect_impl() -> str:
                 parts.append(f'placeholder="{el["placeholder"]}"')
             if el["aria_label"]:
                 parts.append(f'aria-label="{el["aria_label"]}"')
+            if el.get("label"):
+                parts.append(f'label="{el["label"]}"')
+            if el.get("role"):
+                parts.append(f'role="{el["role"]}"')
             if el["text"]:
                 parts.append(f'text="{el["text"]}"')
             
@@ -514,6 +867,26 @@ def browser_click(selector: str) -> str:
 
 def browser_input(selector: str, text: str) -> str:
     return _run_on_browser_thread(_browser_input_impl, selector, text)
+
+
+def browser_click_text(text: str, exact: bool = False) -> str:
+    return _run_on_browser_thread(_browser_click_text_impl, text, exact)
+
+
+def browser_click_role(role: str, name: str, exact: bool = False) -> str:
+    return _run_on_browser_thread(_browser_click_role_impl, role, name, exact)
+
+
+def browser_click_best_match(query: str) -> str:
+    return _run_on_browser_thread(_browser_click_best_match_impl, query)
+
+
+def browser_fill_form(
+    fields: list[dict[str, Any]],
+    submit: bool = False,
+    submit_label: str = "",
+) -> str:
+    return _run_on_browser_thread(_browser_fill_form_impl, fields, submit, submit_label)
 
 
 def browser_close() -> str:

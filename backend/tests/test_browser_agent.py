@@ -1,9 +1,13 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 import pytest
 from verse.tools.builtin.browser import (
     browser_inspect,
     browser_read_current,
     browser_click,
+    browser_click_best_match,
+    browser_click_role,
+    browser_click_text,
+    browser_fill_form,
     browser_input,
     browser_scroll,
     browser_go_back,
@@ -139,6 +143,294 @@ def test_browser_input_numeric_conversion():
         res = browser_input("5", "hello world")
         assert "Successfully entered text into '5'" in res
         mock_page.fill.assert_called_once_with("[data-verse-id='5']", "hello world", timeout=5000)
+
+
+def test_browser_click_text_uses_visible_text_locator():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    text_locator = MagicMock()
+    mock_page.get_by_text.return_value.first = text_locator
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_click_text("Login")
+        assert "Successfully clicked text 'Login'" in res
+        mock_page.get_by_text.assert_called_once_with("Login", exact=False)
+        text_locator.click.assert_called_once_with(timeout=5000)
+
+
+def test_browser_click_text_falls_back_to_metadata_match():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.get_by_text.return_value.first.click.side_effect = RuntimeError("not found")
+    mock_page.evaluate.return_value = [
+        {
+            "id": 3,
+            "tag": "button",
+            "role": "button",
+            "type": "",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "",
+            "text": "Login",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 0, "width": 80, "height": 30},
+        }
+    ]
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_click_text("Login")
+        assert "Successfully clicked best match" in res
+        mock_page.click.assert_called_once_with("[data-verse-id='3']", timeout=5000)
+
+
+def test_browser_click_role_uses_role_locator():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    role_locator = MagicMock()
+    mock_page.get_by_role.return_value.first = role_locator
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_click_role("button", "Kirim", exact=True)
+        assert "Successfully clicked button 'Kirim'" in res
+        mock_page.get_by_role.assert_called_once_with("button", name="Kirim", exact=True)
+        role_locator.click.assert_called_once_with(timeout=5000)
+
+
+def test_browser_click_best_match_refuses_ambiguous_match():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = [
+        {
+            "id": 1,
+            "tag": "button",
+            "role": "button",
+            "type": "",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "Login",
+            "label": "",
+            "text": "Login",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 0, "width": 80, "height": 30},
+        },
+        {
+            "id": 2,
+            "tag": "button",
+            "role": "button",
+            "type": "",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "Login",
+            "label": "",
+            "text": "Login",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 40, "width": 80, "height": 30},
+        },
+    ]
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_click_best_match("Login")
+        assert "ambiguous" in res
+        assert "Candidates" in res
+        mock_page.click.assert_not_called()
+
+
+def test_browser_click_best_match_returns_candidates_on_low_confidence():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = [
+        {
+            "id": 1,
+            "tag": "button",
+            "role": "button",
+            "type": "",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "",
+            "text": "Settings",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 0, "width": 80, "height": 30},
+        }
+    ]
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_click_best_match("Checkout")
+        assert "no matching interactive element" in res
+        mock_page.click.assert_not_called()
+
+
+def test_browser_fill_form_fills_text_select_checkbox_and_submits():
+    mock_page = MagicMock()
+    mock_page.is_closed.return_value = False
+    mock_page.evaluate.return_value = [
+        {
+            "id": 1,
+            "tag": "input",
+            "role": "textbox",
+            "type": "email",
+            "name": "email",
+            "placeholder": "Email",
+            "aria_label": "",
+            "label": "Email",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 0, "width": 100, "height": 30},
+        },
+        {
+            "id": 2,
+            "tag": "textarea",
+            "role": "textbox",
+            "type": "",
+            "name": "notes",
+            "placeholder": "Notes",
+            "aria_label": "",
+            "label": "Notes",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 40, "width": 100, "height": 60},
+        },
+        {
+            "id": 3,
+            "tag": "div",
+            "role": "textbox",
+            "type": "",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "Message",
+            "label": "Message",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 110, "width": 100, "height": 60},
+        },
+        {
+            "id": 4,
+            "tag": "select",
+            "role": "combobox",
+            "type": "",
+            "name": "country",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "Country",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 180, "width": 100, "height": 30},
+        },
+        {
+            "id": 5,
+            "tag": "input",
+            "role": "checkbox",
+            "type": "checkbox",
+            "name": "agree",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "Agree",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 220, "width": 20, "height": 20},
+        },
+        {
+            "id": 6,
+            "tag": "input",
+            "role": "radio",
+            "type": "radio",
+            "name": "priority",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "Priority",
+            "text": "",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 250, "width": 20, "height": 20},
+        },
+        {
+            "id": 7,
+            "tag": "button",
+            "role": "button",
+            "type": "submit",
+            "name": "",
+            "placeholder": "",
+            "aria_label": "",
+            "label": "",
+            "text": "Send",
+            "visible": True,
+            "bounding_box": {"x": 0, "y": 290, "width": 80, "height": 30},
+        },
+    ]
+
+    mock_context = MagicMock()
+    mock_context.pages = [mock_page]
+
+    mock_pw_instance = MagicMock()
+    mock_pw_instance.chromium.launch_persistent_context.return_value = mock_context
+
+    with patch("verse.tools.builtin.browser.sync_playwright") as mock_sync_pw:
+        mock_sync_pw.return_value.start.return_value = mock_pw_instance
+
+        res = browser_fill_form(
+            [
+                {"target": "Email", "value": "rayne@example.com"},
+                {"target": "Notes", "value": "hello textarea"},
+                {"target": "Message", "value": "hello contenteditable"},
+                {"target": "Country", "value": "ID"},
+                {"target": "Agree", "value": "true"},
+                {"target": "Priority", "value": "true"},
+            ],
+            submit=True,
+            submit_label="Send",
+        )
+        assert "Successfully filled form" in res
+        mock_page.fill.assert_has_calls([
+            call("[data-verse-id='1']", "rayne@example.com", timeout=5000),
+            call("[data-verse-id='2']", "hello textarea", timeout=5000),
+            call("[data-verse-id='3']", "hello contenteditable", timeout=5000),
+        ])
+        mock_page.select_option.assert_called_once_with("[data-verse-id='4']", "ID", timeout=5000)
+        mock_page.check.assert_has_calls([
+            call("[data-verse-id='5']", timeout=5000),
+            call("[data-verse-id='6']", timeout=5000),
+        ])
+        mock_page.click.assert_called_once_with("[data-verse-id='7']", timeout=5000)
 
 
 def test_browser_scroll():

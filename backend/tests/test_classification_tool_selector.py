@@ -7,6 +7,7 @@ from verse.config import AppConfig, DebugConfig, MemoryConfig, ToolsConfig
 from verse.intent import IntentCategory, fast_intent_classifier
 from verse.tools import ToolSelector
 from verse.orchestrator import Orchestrator, build_orchestrator
+from verse.tools.registry import build_default_registry
 
 
 def test_fast_intent_classifier():
@@ -87,6 +88,8 @@ def test_selector_includes_full_browser_toolset():
     browser_tools = [
         "open_app", "close_app", "web_search", "open_url",
         "browser_navigate", "browser_read_current", "browser_inspect",
+        "browser_click_best_match", "browser_click_text", "browser_click_role",
+        "browser_fill_form",
         "browser_click", "browser_input", "browser_scroll", "browser_go_back",
         "browser_close",
     ]
@@ -94,10 +97,14 @@ def test_selector_includes_full_browser_toolset():
 
     selected = selector.select("cari mobil listrik dan klik hasil pertama", IntentCategory.BROWSER)
     # The newly implemented tools must be present.
-    assert selected[:8] == [
+    assert selected[:12] == [
         "browser_navigate",
         "browser_read_current",
         "browser_inspect",
+        "browser_click_best_match",
+        "browser_click_text",
+        "browser_click_role",
+        "browser_fill_form",
         "browser_click",
         "browser_input",
         "browser_scroll",
@@ -106,6 +113,10 @@ def test_selector_includes_full_browser_toolset():
     ]
     assert "browser_inspect" in selected
     assert "browser_read_current" in selected
+    assert "browser_click_best_match" in selected
+    assert "browser_click_text" in selected
+    assert "browser_click_role" in selected
+    assert "browser_fill_form" in selected
     assert "browser_scroll" in selected
     assert "browser_go_back" in selected
     assert "open_app" not in selected
@@ -117,6 +128,8 @@ def test_selector_includes_full_browser_toolset():
     default_selector = ToolSelector(ToolsConfig().enabled)
     default_selected = default_selector.select("buka wikipedia dan rangkum artikelnya", IntentCategory.BROWSER)
     assert "browser_read_current" in default_selected
+    assert "browser_click_best_match" in default_selected
+    assert "browser_fill_form" in default_selected
     assert "browser_go_back" in default_selected
 
     whatsapp_selected = default_selector.select("Tolong buka WhatsApp di Brave", IntentCategory.BROWSER)
@@ -132,6 +145,19 @@ def test_selector_includes_full_browser_toolset():
     # Non-browser categories keep the tight 5-tool cap.
     capped = selector.select("buka spotify, setel musik, pengingat, pesan, catatan", IntentCategory.CHAT)
     assert len(capped) <= 5
+
+
+def test_default_registry_exposes_browser_intent_tools():
+    registry = build_default_registry(ToolsConfig().enabled)
+    definitions = {
+        tool["function"]["name"]: tool["function"]
+        for tool in registry.list_definitions()
+    }
+    assert "browser_click_best_match" in definitions
+    assert "browser_click_text" in definitions
+    assert "browser_click_role" in definitions
+    assert "browser_fill_form" in definitions
+    assert definitions["browser_fill_form"]["parameters"]["properties"]["fields"]["type"] == "array"
 
 
 def test_tool_selector():

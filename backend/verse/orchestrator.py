@@ -27,8 +27,10 @@ DEFAULT_SYSTEM_PROMPT = (
     "Use the available tools to control music, open apps, search the web, "
     "or check the time when the user asks for those actions. "
     "Available tools are authoritative: if a tool exists, you can use it. "
-    "When the user asks to browse, open a web page, read a page, search in a browser, click/type/scroll, or summarize web content, "
+    "When the user asks to browse, open a web page, read a page, search in a browser, click/type/fill forms/scroll, or summarize web content, "
     "you MUST use browser tools instead of claiming you cannot browse or read web pages. "
+    "For natural browser clicks or form filling, prefer browser_click_best_match, browser_click_text, browser_click_role, and browser_fill_form. "
+    "Never claim a browser click, fill, or submit succeeded unless the browser tool result says it succeeded. "
     "When the user asks to use WhatsApp in Brave or a browser, use WhatsApp Web/browser tools, not iMessage. "
     "Never say a WhatsApp message was sent unless whatsapp_send_message completed successfully in the current flow. "
     "CRITICAL: When the user asks to change or check system settings (volume, brightness, mute, dark mode, DND), "
@@ -66,8 +68,10 @@ def _project_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 BROWSER_TURN_DIRECTIVE = (
     "Browser turn directive: Verse has Playwright browser tools. For this user request, "
     "call browser_navigate, browser_read_current, browser_inspect, browser_click, "
-    "browser_input, browser_scroll, or browser_go_back before giving the final answer. "
-    "Do not say you cannot browse, read pages, click, type, or summarize web content."
+    "browser_click_text, browser_click_role, browser_click_best_match, browser_input, "
+    "browser_fill_form, browser_scroll, or browser_go_back before giving the final answer. "
+    "For natural click/fill requests, prefer intent/form tools over raw CSS selectors. "
+    "Do not say you cannot browse, read pages, click, type, fill forms, or summarize web content."
 )
 
 WHATSAPP_TURN_DIRECTIVE = (
@@ -405,6 +409,55 @@ def _should_suppress_pre_tool_speech(
     )
 
 
+BROWSER_ACTION_TOOL_NAMES = {
+    "browser_click",
+    "browser_input",
+    "browser_click_text",
+    "browser_click_role",
+    "browser_click_best_match",
+    "browser_fill_form",
+}
+
+
+def _looks_like_browser_action_success_claim(text: str) -> bool:
+    normalized = _normalize_turn_text(text)
+    if not normalized:
+        return False
+    success_terms = (
+        "berhasil", "sudah", "done", "success", "clicked", "filled",
+        "aku klik", "aku isi", "form", "submit", "terisi",
+    )
+    return any(term in normalized for term in success_terms)
+
+
+def _failed_browser_action_result(messages: list[dict[str, Any]]) -> str:
+    tool_names_by_id: dict[str, str] = {}
+    for message in messages:
+        for tool_call in message.get("tool_calls") or []:
+            tool_id = tool_call.get("id")
+            name = tool_call.get("function", {}).get("name")
+            if tool_id and name:
+                tool_names_by_id[str(tool_id)] = str(name)
+
+    for message in reversed(messages):
+        if message.get("role") != "tool":
+            continue
+        tool_id = str(message.get("tool_call_id") or "")
+        name = tool_names_by_id.get(tool_id, "")
+        if name not in BROWSER_ACTION_TOOL_NAMES:
+            continue
+        content = str(message.get("content") or "").strip()
+        lowered = content.lower()
+        if (
+            content.startswith("Failed")
+            or "ambiguous" in lowered
+            or "no confident" in lowered
+            or "no matching" in lowered
+        ):
+            return content
+    return ""
+
+
 def _extract_browser_topic(transcript: str) -> str:
     text = re.sub(r"[^\w\s]", " ", transcript, flags=re.UNICODE)
     text = re.sub(r"\s+", " ", text).strip()
@@ -465,7 +518,11 @@ CANNED_ACKNOWLEDGEMENTS = {
     "browser_read_current": "Bentar, aku baca halaman ini dulu.",
     "browser_inspect": "Bentar, aku cek elemen halamannya dulu.",
     "browser_click": "Bentar, aku klik dulu.",
+    "browser_click_text": "Bentar, aku klik dulu.",
+    "browser_click_role": "Bentar, aku klik dulu.",
+    "browser_click_best_match": "Bentar, aku cari elemen yang cocok dulu.",
     "browser_input": "Bentar, aku isi dulu.",
+    "browser_fill_form": "Bentar, aku isi form-nya dulu.",
     "get_weather": "Bentar, aku cek cuaca dulu.",
     "read_calendar": "Bentar, aku cek kalender dulu.",
     "create_event": "Bentar, aku buat acaranya dulu.",
@@ -1152,6 +1209,32 @@ class Orchestrator:
                         await self.speak_text_immediately(turn, reply)
                     break
 
+                failed_action = _failed_browser_action_result(messages)
+                if (
+                    browser_context
+                    and failed_action
+                    and _looks_like_browser_action_success_claim(text)
+                ):
+                    reply = f"Aku belum bisa menyelesaikan aksi browser-nya: {failed_action}"
+                    self._llm_response = {"text": reply, "tool_calls": []}
+                    self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+                    if speech_task is not None:
+                        try:
+                            if turn.playback is not None:
+                                await turn.playback.clear()
+                        except Exception:
+                            pass
+                        if not speech_task.done():
+                            speech_task.cancel()
+                        try:
+                            await speech_task
+                        except asyncio.CancelledError:
+                            pass
+                    elif reply and self._is_active_turn(turn):
+                        self._emit_assistant_text_for_turn(turn, reply)
+                        await self.speak_text_immediately(turn, reply)
+                    break
+
                 reply = text
                 self._llm_response = {"text": reply, "tool_calls": []}
                 self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
@@ -1479,6 +1562,20 @@ class Orchestrator:
 
                 if browser_context and _looks_like_whatsapp_send_claim(response.text) and tool_count == 0:
                     reply = await self._recover_or_block_whatsapp_claim(transcript)
+                    self._llm_response = {
+                        "text": reply,
+                        "tool_calls": []
+                    }
+                    self._latency_mark("llm_done", chars=len(reply), tool_calls=tool_count)
+                    break
+
+                failed_action = _failed_browser_action_result(messages)
+                if (
+                    browser_context
+                    and failed_action
+                    and _looks_like_browser_action_success_claim(response.text)
+                ):
+                    reply = f"Aku belum bisa menyelesaikan aksi browser-nya: {failed_action}"
                     self._llm_response = {
                         "text": reply,
                         "tool_calls": []

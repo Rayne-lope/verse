@@ -763,6 +763,73 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
             },
             handler=browser.browser_click,
         ),
+        "browser_click_text": Tool(
+            name="browser_click_text",
+            description=(
+                "Click a visible element on the active browser page by its text. "
+                "Use this for natural requests like clicking a labeled link or button."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Visible text to click, e.g. 'Login' or 'Kirim'.",
+                    },
+                    "exact": {
+                        "type": "boolean",
+                        "description": "True for exact text matching; defaults to false.",
+                    },
+                },
+                "required": ["text"],
+            },
+            handler=browser.browser_click_text,
+        ),
+        "browser_click_role": Tool(
+            name="browser_click_role",
+            description=(
+                "Click an element on the active browser page by accessibility role and name, "
+                "for example role='button', name='Login'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "description": "Accessibility role, e.g. button, link, checkbox, textbox.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Accessible name or label of the element.",
+                    },
+                    "exact": {
+                        "type": "boolean",
+                        "description": "True for exact name matching; defaults to false.",
+                    },
+                },
+                "required": ["role", "name"],
+            },
+            handler=browser.browser_click_role,
+        ),
+        "browser_click_best_match": Tool(
+            name="browser_click_best_match",
+            description=(
+                "Click the best matching visible interactive element on the active browser "
+                "page using text, aria-label, placeholder, name, label, role, and tag metadata. "
+                "Returns candidates instead of clicking if the match is weak or ambiguous."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural-language target, e.g. 'hasil pertama', 'tombol login', or 'send'.",
+                    }
+                },
+                "required": ["query"],
+            },
+            handler=browser.browser_click_best_match,
+        ),
         "browser_input": Tool(
             name="browser_input",
             description="Type text into an input field on the active page using a selector.",
@@ -781,6 +848,47 @@ def build_default_registry(enabled: list[str] | None = None) -> ToolRegistry:
                 "required": ["selector", "text"],
             },
             handler=browser.browser_input,
+        ),
+        "browser_fill_form": Tool(
+            name="browser_fill_form",
+            description=(
+                "Fill one or more form fields on the active browser page by matching field "
+                "target text against labels, placeholders, names, aria labels, and nearby text. "
+                "Only submits the form when submit=true."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "fields": {
+                        "type": "array",
+                        "description": "Fields to fill.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "target": {
+                                    "type": "string",
+                                    "description": "Field label/name/placeholder to match.",
+                                },
+                                "value": {
+                                    "type": "string",
+                                    "description": "Value to enter or set.",
+                                },
+                            },
+                            "required": ["target", "value"],
+                        },
+                    },
+                    "submit": {
+                        "type": "boolean",
+                        "description": "Whether to submit after filling; defaults to false.",
+                    },
+                    "submit_label": {
+                        "type": "string",
+                        "description": "Optional submit button label to click.",
+                    },
+                },
+                "required": ["fields"],
+            },
+            handler=browser.browser_fill_form,
         ),
         "browser_close": Tool(
             name="browser_close",
